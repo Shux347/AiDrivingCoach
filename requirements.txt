@@ -1,0 +1,22 @@
+# F1 25 AI Driver Coach — runtime dependencies
+# Python 3.10+
+
+# Data processing
+numpy>=1.24
+pandas>=2.0
+
+# AI integration (new unified Google GenAI SDK — NOT the deprecated google-generativeai)
+google-genai>=1.0.0
+
+# Text-to-speech (low-latency streaming voice)
+edge-tts>=6.1.0
+
+# Cross-platform audio playback for edge-tts output
+# (macOS uses the built-in `afplay`; this is a portable fallback.)
+playsound3>=3.0.0
+
+# Offline TTS fallback
+pyttsx3>=2.90
+
+# Config / env
+python-dotenv>=1.0.0

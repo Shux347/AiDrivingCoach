@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Env / secrets
+.env
+
+# macOS
+.DS_Store
+
+# Captured telemetry / reference laps (keep dir, ignore data)
+reference_laps/*.json
+reference_laps/*.parquet
+reference_laps/*.pkl
+!reference_laps/.gitkeep
+
+# Audio scratch
+*.mp3
+*.wav
+
+# Logs
+*.log
+
+# Local runtime databases (memory store, etc.)
+*.db
