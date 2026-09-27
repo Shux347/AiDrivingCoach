@@ -53,3 +53,20 @@ def test_coach_uses_ranked_corners_without_llm():
     assert "turn 1" in lowered
     assert "turn 4" in lowered
     assert "throttle" in lowered or "apex" in lowered or "brake" in lowered
+
+
+if __name__ == "__main__":
+    import traceback
+
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    failed = 0
+    for fn in fns:
+        try:
+            fn()
+            print(f"PASS {fn.__name__}")
+        except Exception:
+            failed += 1
+            print(f"FAIL {fn.__name__}")
+            traceback.print_exc()
+    print(f"\n{len(fns) - failed}/{len(fns)} passed")
+    sys.exit(1 if failed else 0)
