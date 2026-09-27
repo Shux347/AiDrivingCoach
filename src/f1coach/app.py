@@ -6,10 +6,10 @@
                                             │  on lap complete ──▶ lap_queue
                                             ▼
                           [Coaching thread] ── extract corners, diff vs PB,
-                                               call Gemini, speak the radio
+                                               apply deterministic rules, speak the radio
 
-Ingestion (receiver + aggregator) is never blocked by the slow work (network
-call + audio playback), which lives entirely on the coaching thread.
+Ingestion (receiver + aggregator) is never blocked by the slow work (rule
+evaluation + audio playback), which lives entirely on the coaching thread.
 """
 
 from __future__ import annotations
