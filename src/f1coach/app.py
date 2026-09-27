@@ -6,10 +6,10 @@
                                             │  on lap complete ──▶ lap_queue
                                             ▼
                           [Coaching thread] ── extract corners, diff vs PB,
-                                               call Gemini, speak the radio
+                                               apply deterministic rules, speak the radio
 
-Ingestion (receiver + aggregator) is never blocked by the slow work (network
-call + audio playback), which lives entirely on the coaching thread.
+Ingestion (receiver + aggregator) is never blocked by the slow work (rule
+evaluation + audio playback), which lives entirely on the coaching thread.
 """
 
 from __future__ import annotations
@@ -136,8 +136,7 @@ class Coach:
             self._threads.append(t)
         print(f"F1 Driving Coach running. Listening on "
               f"{config.UDP_BIND_IP}:{config.UDP_PORT}. Ctrl-C to stop.")
-        print(f"AI: {'Gemini ' + config.GEMINI_MODEL if self.ai.online else 'offline fallback'}"
-              f" | TTS: {config.TTS_ENGINE if config.TTS_ENABLED else 'disabled'}")
+        print(f"Coaching: deterministic rules | TTS: {config.TTS_ENGINE if config.TTS_ENABLED else 'disabled'}")
         if self.heartbeat is not None:
             print("Heartbeat on — a [hb] status line prints every "
                   f"{config.HEARTBEAT_INTERVAL:.0f}s so you can confirm packets are arriving "
