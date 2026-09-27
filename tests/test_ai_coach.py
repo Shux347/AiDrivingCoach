@@ -50,6 +50,6 @@ def test_coach_uses_ranked_corners_without_llm():
     sentences = [s.strip() for s in advice.split(".") if s.strip()]
     assert len(sentences) >= 2, f"Expected two deterministic coaching sentences, got: {advice!r}"
     lowered = advice.lower()
-    assert "turn 1" in lowered or "turn 4" in lowered
-    assert "turn 4" in lowered or "turn 1" in lowered
+    assert "turn 1" in lowered
+    assert "turn 4" in lowered
     assert "throttle" in lowered or "apex" in lowered or "brake" in lowered
