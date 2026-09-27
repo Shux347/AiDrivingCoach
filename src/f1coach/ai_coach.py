@@ -78,15 +78,20 @@ def _corner_sentence(d: CornerDelta, intro: str) -> str:
 
 
 def _follow_up(d: CornerDelta) -> str:
+    if d.exit_slip_delta > 0.12:
+        return "Ease the throttle on exit and keep the rear tyres planted."
     if d.throttle_pickup_delta > 4:
         return "Get the car rotated sooner and feed the throttle earlier on exit."
     if d.apex_speed_delta < -2:
         return "Carry more entry speed and wait for the car to rotate before applying full throttle."
-    if d.exit_slip_delta > 0.12:
-        return "Ease the throttle on exit and keep the rear tyres planted."
     if d.brake_point_delta > 3:
         return "Brake a touch earlier and commit to the apex without lifting late."
     return "Carry more speed in and keep a stable line through the middle of the corner."
+
+
+def _merge_with_follow_up(sentence: str, action: str) -> str:
+    """Combine an issue sentence with one action sentence while keeping total output to two sentences."""
+    return sentence.rstrip(".") + f"; {action.rstrip('.')}."
 
 
 def _offline_advice(worst: List[CornerDelta]) -> str:
@@ -101,7 +106,7 @@ def _offline_advice(worst: List[CornerDelta]) -> str:
     secondary = worst[1]
     first = _corner_sentence(primary, f"Turn {primary.corner_index} cost you the most this lap")
     second = _corner_sentence(secondary, f"Turn {secondary.corner_index} was the next issue")
-    return f"{first} {second} {_follow_up(primary)}"
+    return f"{first} {_merge_with_follow_up(second, _follow_up(primary))}"
 
 
 # ---------------------------------------------------------------------------

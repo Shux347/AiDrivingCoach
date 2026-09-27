@@ -48,11 +48,15 @@ def test_coach_uses_ranked_corners_without_llm():
     print(advice)
 
     sentences = [s.strip() for s in advice.split(".") if s.strip()]
-    assert len(sentences) >= 2, f"Expected two deterministic coaching sentences, got: {advice!r}"
+    assert len(sentences) <= 2, f"Expected at most two sentences, got: {advice!r}"
     lowered = advice.lower()
     assert "turn 1" in lowered
     assert "turn 4" in lowered
     assert "throttle" in lowered or "apex" in lowered or "brake" in lowered
+
+    # Wheelspin guidance should not conflict with delayed-throttle coaching.
+    assert "ease the throttle on exit" in lowered
+    assert "feed the throttle earlier on exit" not in lowered
 
 
 if __name__ == "__main__":
