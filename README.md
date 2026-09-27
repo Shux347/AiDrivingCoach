@@ -123,7 +123,6 @@ All via env vars (see [config.py](src/f1coach/config.py) / `.env.example`):
 | `F1COACH_PORT` | `20777` | UDP port |
 | `F1COACH_EXPECTED_FORMAT` | `2025` | UDP packet format to accept; mismatches are flagged and dropped |
 | `F1COACH_HEARTBEAT` | `1` | `0` silences the `[hb]` connection status line |
-| `F1COACH_MODEL` | `gemini-3.6-flash` | Gemini model |
 | `F1COACH_TTS` | `1` | `0` disables audio (prints only) |
 | `F1COACH_TTS_ENGINE` | `edge` | `edge` or `pyttsx3` |
 | `F1COACH_VOICE` | `en-GB-RyanNeural` | edge-tts voice |

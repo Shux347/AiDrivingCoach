@@ -64,24 +64,6 @@ WORST_CORNERS_TO_REPORT: int = 2
 COACH_ON_INVALID_LAPS: bool = os.getenv("F1COACH_COACH_INVALID", "0") == "1"
 
 # ---------------------------------------------------------------------------
-# AI (Gemini via google-genai)
-# ---------------------------------------------------------------------------
-GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-GEMINI_MODEL: str = os.getenv("F1COACH_MODEL", "gemini-3.6-flash")
-GEMINI_TEMPERATURE: float = float(os.getenv("F1COACH_TEMPERATURE", "0.7"))
-GEMINI_MAX_OUTPUT_TOKENS: int = int(os.getenv("F1COACH_MAX_TOKENS", "200"))
-
-SYSTEM_PROMPT: str = (
-    "You are an expert F1 race engineer. You will receive telemetry deltas "
-    "comparing the driver's last lap to their personal best. "
-    "Respond with exactly two short, punchy sentences of advice meant to be "
-    "read over the team radio. Do not use pleasantries. Be direct. "
-    "Example: 'You braked 10 meters too early into Turn 4, which compromised "
-    "your apex speed. Carry more speed in and wait for the car to rotate "
-    "before applying full throttle.'"
-)
-
-# ---------------------------------------------------------------------------
 # Text-to-speech
 # ---------------------------------------------------------------------------
 TTS_ENABLED: bool = os.getenv("F1COACH_TTS", "1") == "1"

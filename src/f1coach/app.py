@@ -136,8 +136,7 @@ class Coach:
             self._threads.append(t)
         print(f"F1 Driving Coach running. Listening on "
               f"{config.UDP_BIND_IP}:{config.UDP_PORT}. Ctrl-C to stop.")
-        print(f"AI: {'Gemini ' + config.GEMINI_MODEL if self.ai.online else 'offline fallback'}"
-              f" | TTS: {config.TTS_ENGINE if config.TTS_ENABLED else 'disabled'}")
+        print(f"Coaching: deterministic rules | TTS: {config.TTS_ENGINE if config.TTS_ENABLED else 'disabled'}")
         if self.heartbeat is not None:
             print("Heartbeat on — a [hb] status line prints every "
                   f"{config.HEARTBEAT_INTERVAL:.0f}s so you can confirm packets are arriving "

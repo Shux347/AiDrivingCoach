@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Iterator, List, Optional
 
-from . import config
 from .corners import CornerDelta
 
 
@@ -116,9 +115,6 @@ class AICoach:
         api_key: Optional[str] = None,
         model: Optional[str] = None,
     ) -> None:
-        self._model = config.GEMINI_MODEL if model is None else model
-        self._client = None
-        self._types = None
         self.online = False
 
     def coach(self, worst: List[CornerDelta]) -> str:
