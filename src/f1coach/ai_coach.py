@@ -65,7 +65,7 @@ def _issue_bits(d: CornerDelta) -> list[str]:
     if d.exit_slip_delta > 0.1:
         bits.append("scrubbed speed with rear wheelspin")
     if not bits:
-        bits.append("carried a little too much speed through the entry")
+        bits.append("lost a small amount of time through the corner")
     return bits
 
 
