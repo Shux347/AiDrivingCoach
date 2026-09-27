@@ -58,7 +58,7 @@ CORNER_MERGE_GAP_METERS: float = 30.0
 # ---------------------------------------------------------------------------
 # Coaching behaviour
 # ---------------------------------------------------------------------------
-# How many of the worst corners to feed the LLM each lap.
+# How many of the worst corners to rank each lap.
 WORST_CORNERS_TO_REPORT: int = 2
 # Only coach on laps that were not invalidated.
 COACH_ON_INVALID_LAPS: bool = os.getenv("F1COACH_COACH_INVALID", "0") == "1"

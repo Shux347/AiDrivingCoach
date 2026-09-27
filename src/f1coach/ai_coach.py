@@ -1,13 +1,8 @@
-"""Phase 4 — the AI coach (Gemini via the google-genai SDK).
+"""Phase 4 — the deterministic driving coach.
 
-Turns a handful of :class:`~f1coach.corners.CornerDelta` objects into a tight,
-structured text summary and asks Gemini 2.5 Flash to reply with two punchy
-race-engineer sentences.
-
-The Gemini SDK is imported lazily so the rest of the pipeline (and the tests)
-runs with no key and no ``google-genai`` installed. Set ``GEMINI_API_KEY`` to
-use the live model; otherwise :class:`AICoach` falls back to a deterministic
-offline generator so the end-to-end flow still works.
+Turns a handful of :class:`~f1coach.corners.CornerDelta` objects into a short,
+structured coaching message using fixed rules and weighted thresholds instead of
+any external model.
 """
 
 from __future__ import annotations
@@ -56,106 +51,80 @@ def format_deltas_to_prompt(worst: List[CornerDelta]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Offline fallback (no API key)
+# Purely mathematical, deterministic coaching logic (no LLM / no API)
 # ---------------------------------------------------------------------------
+def _issue_bits(d: CornerDelta) -> list[str]:
+    bits: list[str] = []
+    if d.brake_point_delta < -3:
+        bits.append(f"braked {abs(d.brake_point_delta):.0f} m too early")
+    elif d.brake_point_delta > 3:
+        bits.append(f"braked {d.brake_point_delta:.0f} m too late")
+    if d.apex_speed_delta < -2:
+        bits.append(f"lost {abs(d.apex_speed_delta):.0f} km/h at the apex")
+    if d.throttle_pickup_delta > 3:
+        bits.append(f"returned to throttle {d.throttle_pickup_delta:.0f} m too late")
+    if d.exit_slip_delta > 0.1:
+        bits.append("scrubbed speed with rear wheelspin")
+    if not bits:
+        bits.append("carried a little too much speed through the entry")
+    return bits
+
+
+def _corner_sentence(d: CornerDelta, intro: str) -> str:
+    bits = _issue_bits(d)
+    if len(bits) == 1:
+        return f"{intro} {bits[0]}."
+    body = ", ".join(bits[:-1]) + f", and {bits[-1]}"
+    return f"{intro} {body}."
+
+
+def _follow_up(d: CornerDelta) -> str:
+    if d.throttle_pickup_delta > 4:
+        return "Get the car rotated sooner and feed the throttle earlier on exit."
+    if d.apex_speed_delta < -2:
+        return "Carry more entry speed and wait for the car to rotate before applying full throttle."
+    if d.exit_slip_delta > 0.12:
+        return "Ease the throttle on exit and keep the rear tyres planted."
+    if d.brake_point_delta > 3:
+        return "Brake a touch earlier and commit to the apex without lifting late."
+    return "Carry more speed in and keep a stable line through the middle of the corner."
+
+
 def _offline_advice(worst: List[CornerDelta]) -> str:
     if not worst:
         return "Clean lap, matched your best everywhere. Keep it exactly there."
-    d = worst[0]
-    bits: list[str] = []
-    if d.brake_point_delta < -3:
-        bits.append(f"braked {abs(d.brake_point_delta):.0f} meters too early into Turn {d.corner_index}")
-    elif d.brake_point_delta > 3:
-        bits.append(f"braked {d.brake_point_delta:.0f} meters late into Turn {d.corner_index}")
-    if d.apex_speed_delta < -2:
-        bits.append(f"lost {abs(d.apex_speed_delta):.0f} km/h at the apex")
-    first = ("You " + ", ".join(bits) + ".") if bits else f"Turn {d.corner_index} cost you the most this lap."
-    if d.throttle_pickup_delta > 3:
-        second = "Get the car rotated sooner and feed the throttle earlier on exit."
-    elif d.exit_slip_delta > 0.1:
-        second = "Ease the throttle on exit — you're lighting up the rears and scrubbing speed."
-    else:
-        second = "Carry more entry speed and commit to the apex."
-    return f"{first} {second}"
+    if len(worst) == 1:
+        d = worst[0]
+        first = _corner_sentence(d, f"Turn {d.corner_index} cost you the most this lap")
+        return f"{first} {_follow_up(d)}"
+
+    primary = worst[0]
+    secondary = worst[1]
+    first = _corner_sentence(primary, f"Turn {primary.corner_index} cost you the most this lap")
+    second = _corner_sentence(secondary, f"Turn {secondary.corner_index} was the next issue")
+    return f"{first} {second} {_follow_up(primary)}"
 
 
 # ---------------------------------------------------------------------------
 # The coach
 # ---------------------------------------------------------------------------
 class AICoach:
-    """Wraps Gemini 2.5 Flash; degrades gracefully to offline advice."""
+    """Deterministic, purely mathematical race-engineer advice."""
 
     def __init__(
         self,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
     ) -> None:
-        # Resolve config lazily (inside __init__), not as default-arg values, so
-        # tests/runtime that set config.GEMINI_API_KEY after import are honoured.
-        api_key = config.GEMINI_API_KEY if api_key is None else api_key
         self._model = config.GEMINI_MODEL if model is None else model
         self._client = None
         self._types = None
         self.online = False
-        if api_key:
-            try:
-                import logging
-
-                from google import genai
-                from google.genai import types
-
-                # The SDK logs an AFC (automatic function calling) advisory on
-                # every generate_content call; we pass no tools, so silence it.
-                logging.getLogger("google_genai").setLevel(logging.ERROR)
-
-                self._client = genai.Client(api_key=api_key)
-                self._types = types
-                self.online = True
-            except Exception as exc:  # pragma: no cover - depends on env
-                print(f"[AICoach] Gemini unavailable ({exc}); using offline advice.")
-
-    def _gen_config(self):
-        # The Gemini Flash models are *thinking* models: thinking tokens count
-        # against max_output_tokens, so a small cap can be fully consumed by
-        # thinking, leaving zero visible text. Disable thinking for this
-        # short-output task.
-        kwargs = dict(
-            system_instruction=config.SYSTEM_PROMPT,
-            temperature=config.GEMINI_TEMPERATURE,
-            max_output_tokens=config.GEMINI_MAX_OUTPUT_TOKENS,
-        )
-        try:
-            kwargs["thinking_config"] = self._types.ThinkingConfig(thinking_budget=0)
-        except Exception:  # older SDK without ThinkingConfig — cap is then enough
-            pass
-        return self._types.GenerateContentConfig(**kwargs)
 
     def coach(self, worst: List[CornerDelta]) -> str:
-        """Return the full coaching line (blocking)."""
-        prompt = format_deltas_to_prompt(worst)
-        if not self.online:
-            return _offline_advice(worst)
-        try:
-            resp = self._client.models.generate_content(
-                model=self._model, contents=prompt, config=self._gen_config()
-            )
-            return (resp.text or "").strip() or _offline_advice(worst)
-        except Exception as exc:  # pragma: no cover - network dependent
-            print(f"[AICoach] generation failed ({exc}); using offline advice.")
-            return _offline_advice(worst)
+        """Return the full coaching line using fixed rules, not an LLM."""
+        return _offline_advice(worst)
 
     def coach_stream(self, worst: List[CornerDelta]) -> Iterator[str]:
-        """Yield the coaching line in chunks as the model produces them."""
-        prompt = format_deltas_to_prompt(worst)
-        if not self.online:
-            yield _offline_advice(worst)
-            return
-        try:
-            for chunk in self._client.models.generate_content_stream(
-                model=self._model, contents=prompt, config=self._gen_config()
-            ):
-                if chunk.text:
-                    yield chunk.text
-        except Exception as exc:  # pragma: no cover - network dependent
-            print(f"[AICoach] stream failed ({exc}); using offline advice.")
-            yield _offline_advice(worst)
+        """Yield the full coaching line in one chunk."""
+        yield self.coach(worst)

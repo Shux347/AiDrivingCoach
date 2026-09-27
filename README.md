@@ -20,8 +20,8 @@ blocked by network calls or audio playback:
                                                   │   distance; detect lap end
                                                   ▼
                                 [Coaching thread]  ── extract corners → diff vs
-                                                      personal best → Gemini →
-                                                      speak the team radio
+                                                      personal best → deterministic
+                                                      rule engine → speak the team radio
 ```
 
 1. **UDP Receiver** ([receiver.py](src/f1coach/receiver.py)) — binds `0.0.0.0:20777`,
@@ -35,9 +35,9 @@ blocked by network calls or audio playback:
    braking-defined corners and reduces each to four features (braking point,
    apex speed, throttle pick-up point, max exit slip), then diffs against the
    reference lap.
-4. **AI + Audio** ([ai_coach.py](src/f1coach/ai_coach.py), [tts.py](src/f1coach/tts.py)) —
-   sends the two worst corners to **Gemini 2.5 Flash** and speaks the reply via
-   **edge-tts** (with an offline `pyttsx3` / macOS `say` fallback).
+4. **Coaching + Audio** ([ai_coach.py](src/f1coach/ai_coach.py), [tts.py](src/f1coach/tts.py)) —
+   scores the two worst corners with fixed mathematical thresholds and speaks the
+   result via **edge-tts** (with an offline `pyttsx3` / macOS `say` fallback).
 
 ### The packets it decodes
 
@@ -59,12 +59,10 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# put your Gemini key (https://aistudio.google.com/apikey) in .env:
-#   GEMINI_API_KEY=...
 ```
 
-Without a key the coach still runs — it falls back to a deterministic offline
-advice generator, so you can develop and demo the full pipeline for free.
+The coach runs entirely offline with a deterministic rule engine, so you can
+build and demo the full pipeline without any external AI service or key.
 
 ### Enable telemetry in F1 25
 
@@ -122,7 +120,6 @@ All via env vars (see [config.py](src/f1coach/config.py) / `.env.example`):
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `GEMINI_API_KEY` | – | Gemini key; omit for offline advice |
 | `F1COACH_PORT` | `20777` | UDP port |
 | `F1COACH_EXPECTED_FORMAT` | `2025` | UDP packet format to accept; mismatches are flagged and dropped |
 | `F1COACH_HEARTBEAT` | `1` | `0` silences the `[hb]` connection status line |
@@ -152,7 +149,7 @@ src/f1coach/
   receiver.py    # Thread 1: UDP listener
   telemetry.py   # Thread 2: distance-indexed aggregation, lap detection
   corners.py     # corner extraction + delta engine
-  ai_coach.py    # Gemini 2.5 Flash + offline fallback
+  ai_coach.py    # deterministic rule-based coaching engine
   tts.py         # edge-tts / pyttsx3 / macOS `say`
   reference.py   # personal-best lap persistence
   app.py         # wires the three threads together
