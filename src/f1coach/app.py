@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from f1coach import config, reference
 from f1coach.ai_coach import AICoach
-from f1coach.corners import Corner, compute_deltas, extract_corners, standardise_corners, worst_corners
+from f1coach.corners import Corner, best_corners, compute_deltas, extract_corners, standardise_corners, worst_corners
 from f1coach.receiver import Frame, HeartbeatMonitor, UDPReceiver
 from f1coach.telemetry import Lap, TelemetryAggregator
 from f1coach.tts import Speaker
@@ -111,7 +111,8 @@ class Coach:
 
         deltas = compute_deltas(corners, self.ref_corners)
         worst = worst_corners(deltas)
-        advice = self.ai.coach(worst)
+        best = best_corners(deltas)
+        advice = self.ai.coach(worst, best)
         self.speaker.say(advice)
         self._maybe_update_reference(lap, corners, allow_invalid=False)
 
