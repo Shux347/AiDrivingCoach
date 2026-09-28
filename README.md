@@ -93,7 +93,7 @@ Two terminals:
 
 ```bash
 # terminal 1 — the coach
-F1COACH_TTS=0 PYTHONPATH=src python -m f1coach.app --track demo
+F1COACH_TTS=0 PYTHONPATH=src python -m f1coach.app --track silverstone
 
 # terminal 2 — synthetic telemetry: one clean lap, then a sloppy one
 python scripts/mock_sender.py

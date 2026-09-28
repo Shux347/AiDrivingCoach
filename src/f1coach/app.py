@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from f1coach import config, reference
 from f1coach.ai_coach import AICoach
-from f1coach.corners import Corner, compute_deltas, extract_corners, worst_corners
+from f1coach.corners import Corner, compute_deltas, extract_corners, standardise_corners, worst_corners
 from f1coach.receiver import Frame, HeartbeatMonitor, UDPReceiver
 from f1coach.telemetry import Lap, TelemetryAggregator
 from f1coach.tts import Speaker
@@ -37,8 +37,13 @@ from f1coach.tts import Speaker
 class Coach:
     """Owns the threads and the shared state (reference lap)."""
 
-    def __init__(self, track: str = "default", coach_invalid: bool = config.COACH_ON_INVALID_LAPS) -> None:
-        self.track = track
+    def __init__(self, track: str | None, coach_invalid: bool = config.COACH_ON_INVALID_LAPS) -> None:
+        if track is None:
+            raise ValueError(
+                "Track is required. Choose one of: "
+                + ", ".join(sorted(config.VALID_TRACKS))
+            )
+        self.track = config.resolve_track_name(track)
         self.coach_invalid = coach_invalid
         self.frame_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=10000)
         self.lap_queue: "queue.Queue[Lap]" = queue.Queue()
@@ -50,14 +55,15 @@ class Coach:
         self._stop = threading.Event()
         self._threads: List[threading.Thread] = []
 
-        loaded = reference.load_reference(track)
+        loaded = reference.load_reference(self.track)
         self.ref_corners: Optional[List[Corner]] = loaded[0] if loaded else None
         self.ref_lap_time_ms: int = loaded[1] if loaded else 0
         if loaded:
-            print(f"Loaded reference lap for '{track}': "
-                  f"{self.ref_lap_time_ms/1000:.3f}s, {len(self.ref_corners)} corners.")
+            turn_count = len(self.ref_corners) if self.ref_corners is not None else 0
+            print(f"Loaded reference lap for '{self.track}': "
+                  f"{self.ref_lap_time_ms/1000:.3f}s, {turn_count} track turns.")
         else:
-            print(f"No reference lap for '{track}' yet — your first clean lap becomes the benchmark.")
+            print(f"No reference lap for '{self.track}' yet — your first clean lap becomes the benchmark.")
 
     # -- lap completion (called on the aggregator thread; must be fast) ----
     def _on_lap_complete(self, lap: Lap) -> None:
@@ -88,10 +94,10 @@ class Coach:
 
     def _handle_completed_lap(self, lap: Lap) -> None:
         corners = extract_corners(lap)
+        corners = standardise_corners(corners, self.ref_corners, track_name=self.track)
         lap_time = f"{lap.lap_time_ms/1000:.3f}s" if lap.lap_time_ms else "n/a"
         tag = " (INVALID)" if lap.invalid else ""
-        print(f"\n=== Lap {lap.lap_number} complete{tag}: {lap_time}, "
-              f"{len(corners)} corners detected ===")
+        print(f"\n=== Lap {lap.lap_number} complete{tag}: {lap_time} | comparing against track turns ===")
 
         if lap.invalid and not self.coach_invalid:
             print("Lap invalidated — skipping coaching. Set F1COACH_COACH_INVALID=1 to override.")
@@ -119,9 +125,9 @@ class Coach:
             lap.lap_time_ms > 0 and lap.lap_time_ms < self.ref_lap_time_ms
         )
         if force or beats_pb:
-            self.ref_corners = corners
+            self.ref_corners = standardise_corners(corners, self.ref_corners, track_name=self.track)
             self.ref_lap_time_ms = lap.lap_time_ms or self.ref_lap_time_ms
-            reference.save_reference(self.track, corners, self.ref_lap_time_ms)
+            reference.save_reference(self.track, self.ref_corners, self.ref_lap_time_ms)
             print(f"⭐ New reference lap saved ({self.ref_lap_time_ms/1000:.3f}s).")
 
     # -- lifecycle ---------------------------------------------------------
@@ -173,11 +179,26 @@ class Coach:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="F1 25 AI Driving Coach")
-    ap.add_argument("--track", default="default", help="track name key for the reference lap")
+    ap = argparse.ArgumentParser(
+        description="F1 25 AI Driving Coach",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    ap.add_argument(
+        "--track",
+        required=True,
+        metavar="TRACK",
+        help="F1 25 circuit name (required). Valid tracks: "
+        + ", ".join(sorted(config.VALID_TRACKS)),
+    )
     ap.add_argument("--coach-invalid", action="store_true", help="coach even on invalidated laps")
     args = ap.parse_args()
-    Coach(track=args.track, coach_invalid=args.coach_invalid).run_forever()
+
+    try:
+        resolved_track = config.resolve_track_name(args.track)
+    except ValueError as exc:
+        ap.error(str(exc))
+
+    Coach(track=resolved_track, coach_invalid=args.coach_invalid).run_forever()
 
 
 if __name__ == "__main__":

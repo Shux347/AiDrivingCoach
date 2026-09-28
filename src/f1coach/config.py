@@ -54,6 +54,11 @@ MIN_BRAKE_ZONE_METERS: float = 15.0
 # Two braking bursts closer than this (metres), with no real throttle application
 # between them, are merged into one corner (trail-braking lift, lockup correction).
 CORNER_MERGE_GAP_METERS: float = 30.0
+# A detected corner is considered the same physical turn as an existing track
+# point if its braking point falls within this distance of the stored marker.
+# Larger than the merge gap so we avoid splitting a real corner into two separate
+# entries while still distinguishing adjacent bends/turns.
+CORNER_CATALOG_MATCH_METERS: float = 45.0
 
 # ---------------------------------------------------------------------------
 # Coaching behaviour
@@ -79,3 +84,133 @@ REFERENCE_LAP_DIR: str = os.getenv(
     "F1COACH_REF_DIR",
     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "reference_laps"),
 )
+
+# Official turn counts for the current F1 25 circuit list.
+# Values are based on the current FIA race-weekend layouts used at each venue.
+TRACK_TURN_COUNTS: dict[str, int] = {
+    "australia": 14,
+    "bahrain": 15,
+    "china": 16,
+    "japan": 18,
+    "saudi_arabia": 27,
+    "miami": 19,
+    "imola": 19,
+    "monaco": 19,
+    "canada": 14,
+    "barcelona": 14,
+    "austria": 10,
+    "silverstone": 18,
+    "spa": 19,
+    "hungary": 14,
+    "netherlands": 14,
+    "monza": 11,
+    "singapore": 19,
+    "azerbaijan": 20,
+    "texas": 20,
+    "mexico": 17,
+    "brazil": 15,
+    "las_vegas": 17,
+    "qatar": 16,
+    "abu_dhabi": 16,
+}
+VALID_TRACKS: frozenset[str] = frozenset(TRACK_TURN_COUNTS)
+ALIASES: dict[str, str] = {
+    "albert_park": "australia",
+    "australia": "australia",
+    "bahrain": "bahrain",
+    "bahrain_international_circuit": "bahrain",
+    "china": "china",
+    "shanghai": "china",
+    "japan": "japan",
+    "suzuka": "japan",
+    "saudi_arabia": "saudi_arabia",
+    "jeddah": "saudi_arabia",
+    "miami": "miami",
+    "miami_international_autodrome": "miami",
+    "imola": "imola",
+    "autodromo_enzo_e_dino_ferrari": "imola",
+    "monaco": "monaco",
+    "monaco_circuit": "monaco",
+    "canada": "canada",
+    "circuit_gilles_villeneuve": "canada",
+    "barcelona": "barcelona",
+    "catalunya": "barcelona",
+    "barcelona_catalunya": "barcelona",
+    "circuit_de_barcelona_catalunya": "barcelona",
+    "austria": "austria",
+    "red_bull_ring": "austria",
+    "silverstone": "silverstone",
+    "silverstone_circuit": "silverstone",
+    "silverstonegp": "silverstone",
+    "spa": "spa",
+    "spa_francorchamps": "spa",
+    "spafrancorchamps": "spa",
+    "hungary": "hungary",
+    "hungaroring": "hungary",
+    "netherlands": "netherlands",
+    "zandvoort": "netherlands",
+    "monza": "monza",
+    "italy": "monza",
+    "singapore": "singapore",
+    "marina_bay": "singapore",
+    "azerbaijan": "azerbaijan",
+    "baku": "azerbaijan",
+    "texas": "texas",
+    "cota": "texas",
+    "circuit_of_the_americas": "texas",
+    "mexico": "mexico",
+    "rodriguez": "mexico",
+    "brazil": "brazil",
+    "interlagos": "brazil",
+    "las_vegas": "las_vegas",
+    "vegas": "las_vegas",
+    "las_vegas_strip_circuit": "las_vegas",
+    "qatar": "qatar",
+    "lusail": "qatar",
+    "abu_dhabi": "abu_dhabi",
+    "yas_marina": "abu_dhabi",
+}
+
+
+def _normalise_track_key(track_name: str | None) -> str:
+    if not track_name:
+        return ""
+    return "".join(ch.lower() if ch.isalnum() else "_" for ch in track_name).strip("_")
+
+
+def official_turn_count(track_name: str | None) -> int | None:
+    """Return the official FIA turn count for a known track, or None if unknown."""
+    key = _normalise_track_key(track_name)
+    if not key:
+        return None
+    for candidate in (
+        key,
+        key.replace("_circuit", ""),
+        key.replace("_grand_prix", ""),
+        key.replace("_gp", ""),
+        key.replace("_international", ""),
+    ):
+        if candidate in TRACK_TURN_COUNTS:
+            return TRACK_TURN_COUNTS[candidate]
+    return None
+
+
+def resolve_track_name(track_name: str | None) -> str:
+    """Canonicalise a user-supplied track name and validate it against the F1 25 list."""
+    env_name = os.getenv("F1COACH_TRACK")
+    candidate = env_name if env_name else track_name
+    key = _normalise_track_key(candidate)
+
+    if not key or key in {"auto", "default", "none"}:
+        raise ValueError(
+            "Missing --track. Choose one of: "
+            + ", ".join(sorted(VALID_TRACKS))
+        )
+
+    resolved = ALIASES.get(key, key)
+    if resolved not in VALID_TRACKS:
+        raise ValueError(
+            f"Unknown track '{candidate}'. Choose one of: "
+            + ", ".join(sorted(VALID_TRACKS))
+        )
+    return resolved
