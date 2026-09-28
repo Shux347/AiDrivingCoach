@@ -34,7 +34,7 @@ def describe_delta(d: CornerDelta) -> str:
     if abs(d.exit_slip_delta) > 0.05:
         slip_word = "more" if d.exit_slip_delta > 0 else "less"
         parts.append(f"{slip_word} rear wheelspin on exit ({d.exit_slip_delta:+.2f})")
-    label = f"Turn {d.corner_index}"
+    label = f"Track turn {d.corner_index}"
     return f"- {label} (~{d.current.brake_point:.0f} m): " + "; ".join(parts)
 
 
@@ -99,13 +99,13 @@ def _offline_advice(worst: List[CornerDelta]) -> str:
         return "Clean lap, matched your best everywhere. Keep it exactly there."
     if len(worst) == 1:
         d = worst[0]
-        first = _corner_sentence(d, f"Turn {d.corner_index} cost you the most this lap")
+        first = _corner_sentence(d, f"Track turn {d.corner_index} cost you the most this lap")
         return f"{first} {_follow_up(d)}"
 
     primary = worst[0]
     secondary = worst[1]
-    first = _corner_sentence(primary, f"Turn {primary.corner_index} cost you the most this lap")
-    second = _corner_sentence(secondary, f"Turn {secondary.corner_index} was the next issue")
+    first = _corner_sentence(primary, f"Track turn {primary.corner_index} cost you the most this lap")
+    second = _corner_sentence(secondary, f"Track turn {secondary.corner_index} was the next issue")
     return f"{first} {_merge_with_follow_up(second, _follow_up(primary))}"
 
 

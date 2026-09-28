@@ -3,6 +3,8 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import numpy as np
@@ -145,6 +147,64 @@ def test_flashback_keeps_redrive():
     # at distance 100 we should keep the re-drive speed (260), not the first (250)
     i = int(np.where(np.isclose(cols["distance"], 100.0))[0][0])
     assert cols["speed"][i] == 260.0
+
+
+def test_standardise_corners_by_track_point():
+    """Known corner positions should be reused across laps; only new track points append."""
+    from f1coach.corners import Corner, standardise_corners
+
+    known = [
+        Corner(1, 300.0, 340.0, 118.0, 360.0, 0.08, 3),
+        Corner(2, 610.0, 650.0, 116.0, 680.0, 0.09, 3),
+    ]
+    current = [
+        Corner(1, 298.0, 338.0, 120.0, 359.0, 0.07, 3),
+        Corner(2, 612.0, 652.0, 114.0, 682.0, 0.10, 3),
+        Corner(3, 905.0, 945.0, 122.0, 980.0, 0.11, 4),
+    ]
+
+    standard = standardise_corners(current, known)
+    assert [c.index for c in standard] == [1, 2, 3]
+    assert [c.brake_point for c in standard] == [300.0, 610.0, 905.0]
+    assert len(standard) == 3
+
+
+def test_official_track_turn_count_is_used_for_known_tracks():
+    """Official circuit turn counts should cap the number of track sectors used for feedback."""
+    from f1coach.corners import Corner, standardise_corners
+    from f1coach.config import TRACK_TURN_COUNTS
+
+    assert TRACK_TURN_COUNTS["silverstone"] == 18
+    assert TRACK_TURN_COUNTS["monaco"] == 19
+    assert TRACK_TURN_COUNTS["australia"] == 14
+    assert TRACK_TURN_COUNTS["saudi_arabia"] == 27
+    assert TRACK_TURN_COUNTS["austria"] == 10
+    assert TRACK_TURN_COUNTS["canada"] == 14
+    assert TRACK_TURN_COUNTS["texas"] == 20
+    assert TRACK_TURN_COUNTS["barcelona"] == 14
+    assert TRACK_TURN_COUNTS["spa"] == 19
+    assert TRACK_TURN_COUNTS["singapore"] == 19
+
+    current = [Corner(i, 100.0 * i, 120.0 * i, 140.0, 150.0, 0.05, 3) for i in range(1, 25)]
+    standard = standardise_corners(current, track_name="silverstone")
+    assert len(standard) == 18
+    assert standard[0].index == 1
+    assert standard[-1].index == 18
+
+
+def test_track_name_validation_is_strict_and_aliases_are_canonical():
+    """Track recognition should be explicit, canonical and reject unknown values."""
+    from f1coach import config
+
+    assert config.resolve_track_name("Silverstone") == "silverstone"
+    assert config.resolve_track_name("SILVERSTONE CIRCUIT") == "silverstone"
+    assert config.resolve_track_name("texas") == "texas"
+    with pytest.raises(ValueError):
+        config.resolve_track_name("auto")
+    with pytest.raises(ValueError):
+        config.resolve_track_name("demo")
+    with pytest.raises(ValueError):
+        config.resolve_track_name(os.environ.get("F1COACH_TRACK", ""))
 
 
 if __name__ == "__main__":

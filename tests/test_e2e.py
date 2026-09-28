@@ -22,7 +22,7 @@ def _run_pipeline():
 
     from f1coach.app import Coach
 
-    coach = Coach(track="unittest")
+    coach = Coach(track="silverstone")
     coach.speaker.enabled = False
     spoken = []
     coach.speaker.say = spoken.append  # capture radio lines

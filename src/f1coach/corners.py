@@ -105,6 +105,68 @@ def extract_corners(lap: Lap) -> List[Corner]:
     return corners
 
 
+def standardise_corners(
+    current: List[Corner],
+    known: Optional[List[Corner]] = None,
+    match_distance: Optional[float] = None,
+    track_name: Optional[str] = None,
+) -> List[Corner]:
+    """Normalize a lap's detected corners against a track catalog.
+
+    Any corner whose braking point sits within ``match_distance`` of an existing
+    track marker is treated as the same physical turn. Otherwise it is appended
+    as a new track point until the official turn count for the circuit is reached.
+    The result is sorted by brake point and carries the canonical track location
+    for each corner.
+    """
+    catalogue = sorted((list(known) if known else []), key=lambda c: c.brake_point)
+    match_limit = config.CORNER_CATALOG_MATCH_METERS if match_distance is None else match_distance
+    official_count = config.official_turn_count(track_name)
+    canonical: List[Corner] = []
+
+    for corner in sorted(current, key=lambda c: c.brake_point):
+        match = None
+        for ref in catalogue:
+            gap = abs(ref.brake_point - corner.brake_point)
+            if gap <= match_limit:
+                if match is None or gap < abs(match.brake_point - corner.brake_point):
+                    match = ref
+
+        if match is not None:
+            canonical.append(
+                Corner(
+                    index=match.index,
+                    brake_point=match.brake_point,
+                    apex_distance=corner.apex_distance,
+                    apex_speed=corner.apex_speed,
+                    throttle_pickup=corner.throttle_pickup,
+                    max_exit_slip=corner.max_exit_slip,
+                    min_gear=corner.min_gear,
+                )
+            )
+            continue
+
+        if official_count is not None and len(catalogue) >= official_count:
+            continue
+
+        new_corner = Corner(
+            index=len(catalogue) + 1,
+            brake_point=corner.brake_point,
+            apex_distance=corner.apex_distance,
+            apex_speed=corner.apex_speed,
+            throttle_pickup=corner.throttle_pickup,
+            max_exit_slip=corner.max_exit_slip,
+            min_gear=corner.min_gear,
+        )
+        catalogue.append(new_corner)
+        canonical.append(new_corner)
+
+    canonical.sort(key=lambda c: c.brake_point)
+    for i, corner in enumerate(canonical, start=1):
+        corner.index = i
+    return canonical
+
+
 def _brake_regions(brake: np.ndarray) -> List[tuple[int, int]]:
     """Maximal contiguous runs of ``brake > threshold`` as [start, end) pairs."""
     braking = brake > config.BRAKE_ON_THRESHOLD
