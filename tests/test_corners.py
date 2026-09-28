@@ -3,8 +3,6 @@
 import os
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import numpy as np
@@ -40,6 +38,14 @@ def _make_lap(lap_number=1, brake_point=300.0, apex_speed=120.0, pickup=360.0):
 
 def apex_from(brake_point):
     return brake_point + 40.0
+
+
+def _assert_raises(exc_type, fn, *args, **kwargs):
+    try:
+        fn(*args, **kwargs)
+    except exc_type:
+        return
+    raise AssertionError(f"Expected {exc_type.__name__} to be raised")
 
 
 def test_extract_single_corner():
@@ -196,15 +202,17 @@ def test_track_name_validation_is_strict_and_aliases_are_canonical():
     """Track recognition should be explicit, canonical and reject unknown values."""
     from f1coach import config
 
-    assert config.resolve_track_name("Silverstone") == "silverstone"
-    assert config.resolve_track_name("SILVERSTONE CIRCUIT") == "silverstone"
-    assert config.resolve_track_name("texas") == "texas"
-    with pytest.raises(ValueError):
-        config.resolve_track_name("auto")
-    with pytest.raises(ValueError):
-        config.resolve_track_name("demo")
-    with pytest.raises(ValueError):
-        config.resolve_track_name(os.environ.get("F1COACH_TRACK", ""))
+    original_track = os.environ.pop("F1COACH_TRACK", None)
+    try:
+        assert config.resolve_track_name("Silverstone") == "silverstone"
+        assert config.resolve_track_name("SILVERSTONE CIRCUIT") == "silverstone"
+        assert config.resolve_track_name("texas") == "texas"
+        _assert_raises(ValueError, config.resolve_track_name, "auto")
+        _assert_raises(ValueError, config.resolve_track_name, "demo")
+        _assert_raises(ValueError, config.resolve_track_name, "")
+    finally:
+        if original_track is not None:
+            os.environ["F1COACH_TRACK"] = original_track
 
 
 if __name__ == "__main__":

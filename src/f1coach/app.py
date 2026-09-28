@@ -37,7 +37,7 @@ from f1coach.tts import Speaker
 class Coach:
     """Owns the threads and the shared state (reference lap)."""
 
-    def __init__(self, track: str = "default", coach_invalid: bool = config.COACH_ON_INVALID_LAPS) -> None:
+    def __init__(self, track: str, coach_invalid: bool = config.COACH_ON_INVALID_LAPS) -> None:
         self.track = config.resolve_track_name(track)
         self.coach_invalid = coach_invalid
         self.frame_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=10000)

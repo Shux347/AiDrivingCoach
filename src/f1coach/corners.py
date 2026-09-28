@@ -123,16 +123,23 @@ def standardise_corners(
     match_limit = config.CORNER_CATALOG_MATCH_METERS if match_distance is None else match_distance
     official_count = config.official_turn_count(track_name)
     canonical: List[Corner] = []
+    reserved_catalogue: set[int] = set()
 
     for corner in sorted(current, key=lambda c: c.brake_point):
-        match = None
-        for ref in catalogue:
+        match_idx = None
+        had_candidate = False
+        for idx, ref in enumerate(catalogue):
             gap = abs(ref.brake_point - corner.brake_point)
             if gap <= match_limit:
-                if match is None or gap < abs(match.brake_point - corner.brake_point):
-                    match = ref
+                had_candidate = True
+                if idx in reserved_catalogue:
+                    continue
+                if match_idx is None or gap < abs(catalogue[match_idx].brake_point - corner.brake_point):
+                    match_idx = idx
 
-        if match is not None:
+        if match_idx is not None:
+            match = catalogue[match_idx]
+            reserved_catalogue.add(match_idx)
             canonical.append(
                 Corner(
                     index=match.index,
@@ -144,6 +151,9 @@ def standardise_corners(
                     min_gear=corner.min_gear,
                 )
             )
+            continue
+
+        if had_candidate:
             continue
 
         if official_count is not None and len(catalogue) >= official_count:
@@ -159,6 +169,7 @@ def standardise_corners(
             min_gear=corner.min_gear,
         )
         catalogue.append(new_corner)
+        reserved_catalogue.add(len(catalogue) - 1)
         canonical.append(new_corner)
 
     canonical.sort(key=lambda c: c.brake_point)
