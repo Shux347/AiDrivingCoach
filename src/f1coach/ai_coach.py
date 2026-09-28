@@ -94,19 +94,79 @@ def _merge_with_follow_up(sentence: str, action: str) -> str:
     return sentence.rstrip(".") + f"; {action.rstrip('.')}."
 
 
-def _offline_advice(worst: List[CornerDelta]) -> str:
-    if not worst:
-        return "Clean lap, matched your best everywhere. Keep it exactly there."
-    if len(worst) == 1:
-        d = worst[0]
-        first = _corner_sentence(d, f"Track turn {d.corner_index} cost you the most this lap")
-        return f"{first} {_follow_up(d)}"
+def _improvement_bits(d: CornerDelta) -> list[str]:
+    bits: list[str] = []
+    if d.apex_speed_delta > 2:
+        bits.append(f"carried {d.apex_speed_delta:.0f} km/h more at the apex")
+    if d.throttle_pickup_delta < -2:
+        bits.append(f"got back to throttle {abs(d.throttle_pickup_delta):.0f} m earlier")
+    if d.exit_slip_delta < -0.1:
+        bits.append("kept the rear tyre planted on exit")
+    if d.brake_point_delta > 3:
+        bits.append(f"braked {d.brake_point_delta:.0f} m later and carried more speed in")
+    if not bits:
+        bits.append("were cleaner through the corner than your reference")
+    return bits
 
-    primary = worst[0]
-    secondary = worst[1]
-    first = _corner_sentence(primary, f"Track turn {primary.corner_index} cost you the most this lap")
-    second = _corner_sentence(secondary, f"Track turn {secondary.corner_index} was the next issue")
-    return f"{first} {_merge_with_follow_up(second, _follow_up(primary))}"
+
+def _positive_corner_sentence(d: CornerDelta) -> str:
+    bits = _improvement_bits(d)
+    if len(bits) == 1:
+        return f"Track turn {d.corner_index} was a clear improvement: {bits[0]}."
+    body = ", ".join(bits[:-1]) + f", and {bits[-1]}"
+    return f"Track turn {d.corner_index} was a clear improvement: {body}."
+
+
+def _selected_changes(worst: List[CornerDelta], best: Optional[List[CornerDelta]] = None, max_changes: int = 3) -> List[CornerDelta]:
+    """Pick the strongest reference-lap changes while keeping at least one positive improvement when it exists."""
+    selected: List[CornerDelta] = []
+    if best:
+        selected.append(best[0])
+    if worst:
+        selected.extend(worst[: max(0, max_changes - len(selected))])
+    if len(selected) < max_changes and best:
+        for d in best[1:]:
+            if len(selected) >= max_changes:
+                break
+            if d not in selected:
+                selected.append(d)
+    if len(selected) < max_changes and worst:
+        for d in worst[len(selected) - (1 if best else 0):]:
+            if len(selected) >= max_changes:
+                break
+            if d not in selected:
+                selected.append(d)
+    return selected[:max_changes]
+
+
+def _offline_advice(worst: List[CornerDelta], best: Optional[List[CornerDelta]] = None) -> str:
+    if not worst and not best:
+        return "Clean lap, matched your best everywhere. Keep it exactly there."
+
+    selected = _selected_changes(worst, best)
+    if not selected:
+        return "Clean lap, matched your best everywhere. Keep it exactly there."
+
+    main_issue = worst[0] if worst else None
+    if len(selected) == 1:
+        d = selected[0]
+        if best is not None and d in best:
+            return f"{_positive_corner_sentence(d)} {_follow_up(d)}"
+        return f"{_corner_sentence(d, f'Track turn {d.corner_index} cost you the most this lap')} {_follow_up(d)}"
+
+    sentences: List[str] = []
+    for d in selected:
+        if best is not None and d in best:
+            sentences.append(_positive_corner_sentence(d))
+        elif main_issue is not None and d is main_issue:
+            sentences.append(_corner_sentence(d, f"Track turn {d.corner_index} cost you the most this lap"))
+        else:
+            sentences.append(_corner_sentence(d, f"Track turn {d.corner_index} was the next change"))
+
+    summary = " ".join(sentences)
+    if main_issue is not None:
+        summary = f"{summary} {_follow_up(main_issue)}"
+    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -122,10 +182,10 @@ class AICoach:
     ) -> None:
         self.online = False
 
-    def coach(self, worst: List[CornerDelta]) -> str:
+    def coach(self, worst: List[CornerDelta], best: Optional[List[CornerDelta]] = None) -> str:
         """Return the full coaching line using fixed rules, not an LLM."""
-        return _offline_advice(worst)
+        return _offline_advice(worst, best)
 
-    def coach_stream(self, worst: List[CornerDelta]) -> Iterator[str]:
+    def coach_stream(self, worst: List[CornerDelta], best: Optional[List[CornerDelta]] = None) -> Iterator[str]:
         """Yield the full coaching line in one chunk."""
-        yield self.coach(worst)
+        yield self.coach(worst, best)

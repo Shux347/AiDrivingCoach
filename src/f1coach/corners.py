@@ -267,6 +267,16 @@ class CornerDelta:
             + max(0.0, self.exit_slip_delta) * 20.0        # instability penalty
         )
 
+    @property
+    def improvement_proxy(self) -> float:
+        """Positive score for corner gains vs. the reference lap."""
+        return (
+            max(0.0, self.apex_speed_delta) * 1.0          # km/h gained at apex
+            + max(0.0, -self.throttle_pickup_delta) * 0.5  # earlier throttle pickup
+            + max(0.0, -self.exit_slip_delta) * 20.0       # cleaner exit, less wheelspin
+            + max(0.0, self.brake_point_delta) * 0.2        # later, more committed braking
+        )
+
 
 def compute_deltas(
     current: List[Corner],
@@ -322,3 +332,12 @@ def compute_deltas(
 def worst_corners(deltas: List[CornerDelta], n: int = config.WORST_CORNERS_TO_REPORT) -> List[CornerDelta]:
     """The ``n`` corners that cost the most time this lap, worst first."""
     return sorted(deltas, key=lambda d: d.time_cost_proxy, reverse=True)[:n]
+
+
+def best_corners(deltas: List[CornerDelta], n: int = config.WORST_CORNERS_TO_REPORT) -> List[CornerDelta]:
+    """The ``n`` corners where the current lap genuinely improved versus the reference."""
+    return sorted(
+        (d for d in deltas if d.improvement_proxy > 0.0),
+        key=lambda d: d.improvement_proxy,
+        reverse=True,
+    )[:n]
