@@ -37,7 +37,12 @@ from f1coach.tts import Speaker
 class Coach:
     """Owns the threads and the shared state (reference lap)."""
 
-    def __init__(self, track: str, coach_invalid: bool = config.COACH_ON_INVALID_LAPS) -> None:
+    def __init__(self, track: str | None, coach_invalid: bool = config.COACH_ON_INVALID_LAPS) -> None:
+        if track is None:
+            raise ValueError(
+                "Track is required. Choose one of: "
+                + ", ".join(sorted(config.VALID_TRACKS))
+            )
         self.track = config.resolve_track_name(track)
         self.coach_invalid = coach_invalid
         self.frame_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=10000)
@@ -50,15 +55,15 @@ class Coach:
         self._stop = threading.Event()
         self._threads: List[threading.Thread] = []
 
-        loaded = reference.load_reference(track)
+        loaded = reference.load_reference(self.track)
         self.ref_corners: Optional[List[Corner]] = loaded[0] if loaded else None
         self.ref_lap_time_ms: int = loaded[1] if loaded else 0
         if loaded:
             turn_count = len(self.ref_corners) if self.ref_corners is not None else 0
-            print(f"Loaded reference lap for '{track}': "
+            print(f"Loaded reference lap for '{self.track}': "
                   f"{self.ref_lap_time_ms/1000:.3f}s, {turn_count} track turns.")
         else:
-            print(f"No reference lap for '{track}' yet — your first clean lap becomes the benchmark.")
+            print(f"No reference lap for '{self.track}' yet — your first clean lap becomes the benchmark.")
 
     # -- lap completion (called on the aggregator thread; must be fast) ----
     def _on_lap_complete(self, lap: Lap) -> None:
