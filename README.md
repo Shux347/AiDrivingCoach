@@ -87,6 +87,22 @@ PYTHONPATH=src python -m f1coach.app --track silverstone
 first clean lap on that track becomes the benchmark, and any faster valid lap
 replaces it.
 
+### Resetting reference laps
+
+To clear an existing reference lap for a circuit so your next clean lap becomes the new benchmark:
+
+```bash
+PYTHONPATH=src python -m f1coach.app --track silverstone --reset-reference
+```
+
+### CLI options
+
+| Flag | Meaning |
+|------|---------|
+| `--track TRACK` | F1 25 circuit name (required, e.g. `silverstone`, `mexico`, `texas`) |
+| `--reset-reference` | Reset / delete the stored reference lap for this track before running |
+| `--coach-invalid` | Coach on invalidated laps as well as clean laps |
+
 ### Try it with no game (mock replay)
 
 Two terminals:

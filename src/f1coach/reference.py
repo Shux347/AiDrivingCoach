@@ -50,3 +50,14 @@ def load_reference(track: str) -> Optional[tuple[List[Corner], int]]:
         return corners, int(payload["lap_time_ms"])
     except Exception:
         return None
+
+
+def reset_reference(track: str) -> bool:
+    path = _path(track)
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+            return True
+        except Exception:
+            return False
+    return False

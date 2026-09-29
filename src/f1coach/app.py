@@ -37,7 +37,7 @@ from f1coach.tts import Speaker
 class Coach:
     """Owns the threads and the shared state (reference lap)."""
 
-    def __init__(self, track: str | None, coach_invalid: bool = config.COACH_ON_INVALID_LAPS) -> None:
+    def __init__(self, track: str | None, coach_invalid: bool = config.COACH_ON_INVALID_LAPS, reset_reference: bool = False) -> None:
         if track is None:
             raise ValueError(
                 "Track is required. Choose one of: "
@@ -45,6 +45,13 @@ class Coach:
             )
         self.track = config.resolve_track_name(track)
         self.coach_invalid = coach_invalid
+        
+        if reset_reference:
+            if reference.reset_reference(self.track):
+                print(f"Reset reference lap for '{self.track}'.")
+            else:
+                print(f"No existing reference lap found to reset for '{self.track}'.")
+
         self.frame_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=10000)
         self.lap_queue: "queue.Queue[Lap]" = queue.Queue()
         self.receiver = UDPReceiver(self.frame_queue)
@@ -192,6 +199,7 @@ def main() -> None:
         + ", ".join(sorted(config.VALID_TRACKS)),
     )
     ap.add_argument("--coach-invalid", action="store_true", help="coach even on invalidated laps")
+    ap.add_argument("--reset-reference", action="store_true", help="reset/delete the stored reference lap for this track")
     args = ap.parse_args()
 
     try:
@@ -199,7 +207,7 @@ def main() -> None:
     except ValueError as exc:
         ap.error(str(exc))
 
-    Coach(track=resolved_track, coach_invalid=args.coach_invalid).run_forever()
+    Coach(track=resolved_track, coach_invalid=args.coach_invalid, reset_reference=args.reset_reference).run_forever()
 
 
 if __name__ == "__main__":
