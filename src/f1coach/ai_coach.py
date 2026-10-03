@@ -27,9 +27,8 @@ def _fmt_signed(value: float, unit: str, pos_word: str, neg_word: str, ndigits: 
 def describe_delta(d: CornerDelta) -> str:
     """One bullet line summarising a corner's deltas vs. the reference lap."""
     parts = [
-        f"braking point {_fmt_signed(d.brake_point_delta, 'm', 'later', 'earlier')}",
-        f"apex speed {_fmt_signed(d.apex_speed_delta, ' km/h', 'faster', 'slower')}",
-        f"back to throttle {_fmt_signed(d.throttle_pickup_delta, 'm', 'later', 'earlier')}",
+        f"brake {'later' if d.brake_point_delta >= 0 else 'earlier'}",
+        f"accelerate {'later' if d.throttle_pickup_delta >= 0 else 'earlier'}",
     ]
     if abs(d.exit_slip_delta) > 0.05:
         slip_word = "more" if d.exit_slip_delta > 0 else "less"
@@ -55,13 +54,13 @@ def format_deltas_to_prompt(worst: List[CornerDelta]) -> str:
 def _issue_bits(d: CornerDelta) -> list[str]:
     bits: list[str] = []
     if d.brake_point_delta < -3:
-        bits.append(f"braked {abs(d.brake_point_delta):.0f} m too early")
+        bits.append(f"braked {abs(d.brake_point_delta):.0f} m too early; brake later next time")
     elif d.brake_point_delta > 3:
-        bits.append(f"braked {d.brake_point_delta:.0f} m too late")
-    if d.apex_speed_delta < -2:
-        bits.append(f"lost {abs(d.apex_speed_delta):.0f} km/h at the apex")
+        bits.append(f"braked {d.brake_point_delta:.0f} m too late; brake earlier next time")
     if d.throttle_pickup_delta > 3:
-        bits.append(f"returned to throttle {d.throttle_pickup_delta:.0f} m too late")
+        bits.append("accelerated too late; accelerate earlier next time")
+    elif d.throttle_pickup_delta < -3:
+        bits.append("accelerated too early; accelerate later once the car is rotated")
     if d.exit_slip_delta > 0.1:
         bits.append("scrubbed speed with rear wheelspin")
     if not bits:
@@ -81,12 +80,12 @@ def _follow_up(d: CornerDelta) -> str:
     if d.exit_slip_delta > 0.12:
         return "Ease the throttle on exit and keep the rear tyres planted."
     if d.throttle_pickup_delta > 4:
-        return "Get the car rotated sooner and feed the throttle earlier on exit."
-    if d.apex_speed_delta < -2:
-        return "Carry more entry speed and wait for the car to rotate before applying full throttle."
+        return "Get the car rotated sooner and accelerate earlier on exit."
     if d.brake_point_delta > 3:
-        return "Brake a touch earlier and commit to the apex without lifting late."
-    return "Carry more speed in and keep a stable line through the middle of the corner."
+        return "Brake a touch earlier, then commit to the throttle once the car is rotated."
+    if d.brake_point_delta < -3:
+        return "Brake later and release the brake smoothly as you turn in."
+    return "Brake consistently, then accelerate as soon as the car is rotated."
 
 
 def _merge_with_follow_up(sentence: str, action: str) -> str:
@@ -96,14 +95,12 @@ def _merge_with_follow_up(sentence: str, action: str) -> str:
 
 def _improvement_bits(d: CornerDelta) -> list[str]:
     bits: list[str] = []
-    if d.apex_speed_delta > 2:
-        bits.append(f"carried {d.apex_speed_delta:.0f} km/h more at the apex")
     if d.throttle_pickup_delta < -2:
-        bits.append(f"got back to throttle {abs(d.throttle_pickup_delta):.0f} m earlier")
+        bits.append(f"accelerated {abs(d.throttle_pickup_delta):.0f} m earlier")
     if d.exit_slip_delta < -0.1:
         bits.append("kept the rear tyre planted on exit")
     if d.brake_point_delta > 3:
-        bits.append(f"braked {d.brake_point_delta:.0f} m later and carried more speed in")
+        bits.append(f"braked {d.brake_point_delta:.0f} m later")
     if not bits:
         bits.append("were cleaner through the corner than your reference")
     return bits
