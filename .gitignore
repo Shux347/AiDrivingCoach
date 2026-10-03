@@ -17,6 +17,9 @@ reference_laps/*.json
 reference_laps/*.parquet
 reference_laps/*.pkl
 !reference_laps/.gitkeep
+reference_laps/charts/**/*.svg
+reference_laps/charts/**/*.html
+reference_laps/charts/**/*.png
 
 # Audio scratch
 *.mp3

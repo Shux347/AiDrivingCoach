@@ -84,6 +84,7 @@ REFERENCE_LAP_DIR: str = os.getenv(
     "F1COACH_REF_DIR",
     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "reference_laps"),
 )
+LAP_CHART_DIR: str | None = os.getenv("F1COACH_LAP_CHART_DIR")
 
 # Official turn counts for the current F1 25 circuit list.
 # Values are based on the current FIA race-weekend layouts used at each venue.
