@@ -33,6 +33,11 @@ def test_render_saves_each_lap_and_compares_recent_speed_traces(tmp_path):
     live_chart = open(renderer.live_path, encoding="utf-8").read()
     assert 'http-equiv="refresh" content="2"' in live_chart
     assert "Lap 2 (current)" in live_chart
+    assert 'data-panel="speed"' in live_chart
+    assert 'data-panel="throttle"' in live_chart
+    assert 'THROTTLE (%)' in live_chart
+    assert "localStorage.setItem(storageKey" in live_chart
+    assert "localStorage.getItem(storageKey)" in live_chart
 
 
 def test_render_uses_reference_corner_speeds_as_target_curve(tmp_path):

@@ -15,7 +15,7 @@ from .telemetry import Lap, LapSample
 class LapChartRenderer:
     """Save one speed comparison chart for every completed lap."""
 
-    def __init__(self, track: str, output_dir: str, history_limit: int = 5) -> None:
+    def __init__(self, track: str, output_dir: str, history_limit: int = 2) -> None:
         self.track = track
         self.output_dir = output_dir
         self.history_limit = history_limit
@@ -209,17 +209,143 @@ class LapChartRenderer:
 {''.join(traces)}
 </svg>
 '''
+        throttle_svg = self._build_throttle_svg(visible_laps, reference_samples)
         with open(self.live_path, "w", encoding="utf-8") as live_file:
             live_file.write(
                 '<!doctype html>\n'
                 '<html><head><meta charset="utf-8">\n'
                 '<meta http-equiv="refresh" content="2">\n'
-                f'<title>{title} - Live speed comparison</title></head>\n'
-                '<body style="margin:0;background:#0b1220">\n'
-                f'{svg}\n'
+                f'<title>{title} - Live telemetry</title>\n'
+                '<style>\n'
+                'body{margin:0;background:#0b1220;font-family:sans-serif}\n'
+                '.tabs{display:flex;gap:8px;padding:18px 28px 0;background:#0b1220}\n'
+                '.tab{border:1px solid #30435e;border-bottom:0;border-radius:7px 7px 0 0;'
+                'background:#111c2c;color:#9eacc0;padding:10px 22px;font-size:14px;cursor:pointer}\n'
+                '.tab.active{background:#ff5a36;color:#fff;border-color:#ff5a36}\n'
+                '.panel{display:none}.panel.active{display:block}\n'
+                '</style></head>\n'
+                '<body>\n'
+                '<nav class="tabs" aria-label="Telemetry charts">\n'
+                '<button class="tab active" data-panel="speed">Speed</button>\n'
+                '<button class="tab" data-panel="throttle">Throttle</button>\n'
+                '</nav>\n'
+                f'<main id="speed" class="panel active">{svg}</main>\n'
+                f'<main id="throttle" class="panel">{throttle_svg}</main>\n'
+                '<script>\n'
+                f'var storageKey = "f1coach-{self.track}-active-tab";\n'
+                'function activateTab(panelName){\n'
+                'document.querySelectorAll(".tab,.panel").forEach(function(item){item.classList.remove("active")});\n'
+                'var button = document.querySelector(".tab[data-panel=\\"" + panelName + "\\"]");\n'
+                'if (!button) { panelName = "speed"; button = document.querySelector(".tab[data-panel=\\"speed\\"]"); }\n'
+                'button.classList.add("active");\n'
+                'document.getElementById(panelName).classList.add("active");\n'
+                '}\n'
+                'document.querySelectorAll(".tab").forEach(function(button){\n'
+                'button.addEventListener("click",function(){\n'
+                'localStorage.setItem(storageKey, button.dataset.panel);\n'
+                'activateTab(button.dataset.panel);\n'
+                '});});\n'
+                'activateTab(localStorage.getItem(storageKey) || "speed");\n'
+                '</script>\n'
                 '</body></html>\n'
             )
         return self.live_path
+
+    def _build_throttle_svg(
+        self,
+        visible_laps: List[Lap],
+        reference_samples: List[LapSample] | None,
+    ) -> str:
+        """Build the throttle tab using the same lap comparison styling."""
+        width, height = 1400, 820
+        left, right, top, bottom = 105, 52, 170, 92
+        plot_width = width - left - right
+        plot_height = height - top - bottom
+        all_arrays = [item.arrays() for item in visible_laps]
+        reference_arrays = (
+            Lap(lap_number=0, samples=reference_samples).arrays()
+            if reference_samples
+            else None
+        )
+        max_distance = max(
+            [float(arrays["distance"][-1]) for arrays in all_arrays if len(arrays["distance"])]
+            + ([float(reference_arrays["distance"][-1])] if reference_arrays is not None else [])
+            + [1.0]
+        )
+
+        def smooth_path(arrays: dict) -> str:
+            distances = arrays["distance"]
+            values = arrays["throttle"]
+            if not len(distances):
+                return ""
+            point_count = max(80, min(600, len(distances) * 4))
+            dense_distances = np.linspace(float(distances[0]), float(distances[-1]), point_count)
+            dense_values = np.interp(dense_distances, distances, values)
+            coordinates = [
+                (
+                    left + float(distance) / max_distance * plot_width,
+                    top + (1.0 - float(value)) * plot_height,
+                )
+                for distance, value in zip(dense_distances, dense_values)
+            ]
+            path = [f"M {coordinates[0][0]:.1f},{coordinates[0][1]:.1f}"]
+            for index in range(1, len(coordinates)):
+                previous = coordinates[index - 1]
+                current = coordinates[index]
+                before = coordinates[max(0, index - 2)]
+                after = coordinates[min(len(coordinates) - 1, index + 1)]
+                control_one = (previous[0] + (current[0] - before[0]) / 6, previous[1] + (current[1] - before[1]) / 6)
+                control_two = (current[0] - (after[0] - previous[0]) / 6, current[1] - (after[1] - previous[1]) / 6)
+                path.append(
+                    f"C {control_one[0]:.1f},{control_one[1]:.1f} "
+                    f"{control_two[0]:.1f},{control_two[1]:.1f} "
+                    f"{current[0]:.1f},{current[1]:.1f}"
+                )
+            return " ".join(path)
+
+        grid = []
+        for index in range(6):
+            y = top + plot_height * index / 5
+            value = 100 * (1 - index / 5)
+            grid.append(
+                f'<line x1="{left}" y1="{y:.1f}" x2="{width - right}" y2="{y:.1f}" stroke="#27364a" />'
+                f'<text x="{left - 18}" y="{y + 5:.1f}" text-anchor="end">{value:.0f}%</text>'
+            )
+        x_ticks = []
+        for index in range(6):
+            x = left + plot_width * index / 5
+            x_ticks.append(
+                f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{height - bottom}" stroke="#1d2a3b" />'
+                f'<text x="{x:.1f}" y="{height - bottom + 29}" text-anchor="middle">{max_distance * index / 5:.0f}</text>'
+            )
+        colors = ["#718096", "#3bb7c8", "#ff5a36"]
+        traces = []
+        if reference_arrays is not None and len(reference_arrays["distance"]):
+            traces.append(
+                f'<path d="{smooth_path(reference_arrays)}" fill="none" stroke="#f2c14e" stroke-width="3" stroke-dasharray="10 8" />'
+            )
+        for index, arrays in enumerate(all_arrays):
+            if len(arrays["distance"]):
+                color = colors[-1] if index == len(all_arrays) - 1 else colors[index % 2]
+                traces.append(
+                    f'<path d="{smooth_path(arrays)}" fill="none" stroke="{color}" stroke-width="{4 if index == len(all_arrays) - 1 else 2.5}" opacity="{1 if index == len(all_arrays) - 1 else 0.72}" />'
+                )
+        title = escape(self.track.replace("_", " ").title())
+        lap_labels = " / ".join(f"Lap {item.lap_number}" for item in visible_laps)
+        subtitle = escape(f"Throttle trace comparison  /  {lap_labels}")
+        legend = '<text x="875" y="128" fill="#b9c5d6">Reference target</text>' if reference_arrays is not None else ''
+        return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+<rect width="100%" height="100%" fill="#0b1220" /><rect x="28" y="24" width="1344" height="772" rx="10" fill="#111c2c" stroke="#243349" />
+<text x="60" y="58" font-family="sans-serif" font-size="14" font-weight="700" letter-spacing="2" fill="#ff5a36">F1 DRIVING COACH  /  TELEMETRY</text>
+<text x="60" y="91" font-family="sans-serif" font-size="26" font-weight="700" fill="#f4f7fb">{title}</text>
+<text x="60" y="116" font-family="sans-serif" font-size="14" fill="#8292a8">{subtitle}</text>
+<g font-family="sans-serif" font-size="13">{legend}</g>
+<rect x="{left}" y="{top}" width="{plot_width}" height="{plot_height}" fill="#0d1726" stroke="#2b3b52" />
+<g font-family="sans-serif" font-size="13" fill="#8090a5">{''.join(grid)}{''.join(x_ticks)}</g>
+<line x1="{left}" y1="{top}" x2="{left}" y2="{height - bottom}" stroke="#8090a5" /><line x1="{left}" y1="{height - bottom}" x2="{width - right}" y2="{height - bottom}" stroke="#8090a5" />
+<g font-family="sans-serif" font-size="14" fill="#aab7c8"><text x="{width / 2:.0f}" y="{height - 25}" text-anchor="middle">LAP DISTANCE (M)</text><text x="30" y="{height / 2:.0f}" text-anchor="middle" transform="rotate(-90 30 {height / 2:.0f})">THROTTLE (%)</text></g>
+{''.join(traces)}
+</svg>'''
 
     @staticmethod
     def _reference_arrays(
