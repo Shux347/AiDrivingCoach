@@ -20,6 +20,7 @@ reference_laps/*.pkl
 reference_laps/charts/**/*.svg
 reference_laps/charts/**/*.html
 reference_laps/charts/**/*.png
+reference_laps/charts/**/*.json
 
 # Audio scratch
 *.mp3
