@@ -1,63 +1,160 @@
-# Project Specification: F1 25 AI Driver Coach
+# Project specification and current implementation
 
-## 1. Project Overview
-**Goal:** Build a local Python application that reads live UDP telemetry from EA Sports F1 25, processes the raw data into actionable corner-by-corner performance metrics, and uses an LLM (Google Gemini via API) to provide automated, highly specific post-lap driving feedback via Text-to-Speech (TTS).
+This document describes the architecture that is actually implemented in the
+repository today. It reflects the current deterministic coaching workflow, not the
+older LLM-driven prototype that used Gemini.
 
-**Target Tech Stack:**
-*   **Language:** Python 3.10+
-*   **Data Ingestion:** standard `socket` and `struct` libraries.
-*   **Data Processing:** `pandas` and `numpy` (for delta calculations).
-*   **AI Integration:** `google-genai` (Gemini 2.5 Flash).
-*   **Audio/TTS:** `edge-tts` (or local `piper` / `pyttsx3`) for low-latency voice delivery.
+## Status
 
-## 2. System Architecture
-The application is separated into four distinct modular layers:
+The codebase is currently an offline, local race-engineering coach for F1 25. It
+reads UDP telemetry, reconstructs laps in distance space, compares each lap to a
+stored personal-best reference, and produces deterministic coaching advice using
+fixed rules and thresholds.
 
-1.  **UDP Receiver (Thread 1):** Listens on port `20777` at 60Hz. Unpacks binary C-structs and pushes relevant frames into a thread-safe queue.
-2.  **Telemetry Aggregator (Thread 2):** Consumes the queue. Maps telemetry to track position (`m_lapDistance`). Slices data into "Corners" based on braking zones and steering inputs. 
-3.  **Delta Analyzer:** Compares the current lap's corner data against a Reference Lap (Personal Best). Extracts 3-4 key deltas (e.g., "Braked 15m early").
-4.  **AI & Audio Engine:** Sends the structured text delta to the Gemini API at the end of the lap/sector. Streams the text response to the TTS engine.
+The current implementation does not call an external AI service and does not
+require any API key.
 
-## 3. Data Ingestion (F1 25 UDP Specs)
-*   **Protocol:** UDP IPv4
-*   **Port:** 20777
-*   **Format:** Little-endian binary C-structs.
-*   **Key Packets to Decode:**
-    *   `PacketHeader` (Included in every packet, size 29 bytes). Extract `m_packetId`.
-    *   `PacketId == 2` (Lap Data): Need `m_lapDistance`, `m_currentLapNum`, `m_sector`, `m_currentLapInvalid`.
-    *   `PacketId == 6` (Car Telemetry): Need `m_speed`, `m_throttle`, `m_brake`, `m_steer`, `m_gear`.
-    *   `PacketId == 13` (Motion Ex): Need `m_wheelSlipRatio` (rear wheel spin) and `m_wheelSlipAngle` (front understeer).
+## Project goal
 
-*Crucial Rule for the LLM writing the code:* Never index data by time. Always index data arrays by `m_lapDistance` to ensure Lap 1 and Lap 2 align spatially on the track.
+The app should help a driver improve lap-by-lap by:
 
-## 4. Feature Engineering (The Delta Engine)
-Do **not** send raw 60Hz telemetry to the AI. The Python code must reduce the corner into the following mathematical features before contacting the LLM:
+- listening to live telemetry from F1 25,
+- tracking the relevant packet streams without blocking on slow work,
+- extracting meaningful turn-level metrics,
+- comparing the current lap against a personal best,
+- telling the driver what changed and what to fix,
+- speaking the advice over the radio using TTS.
 
-*   **Braking Point ($D_{brake}$):** Track distance ($m$) where `m_brake` goes $> 0.2$ (20%).
-*   **Apex Speed ($V_{min}$):** Minimum `m_speed` ($km/h$) during the cornering phase.
-*   **Throttle Pick-up Point ($D_{throttle}$):** Track distance ($m$) where `m_throttle` goes $> 0.5$ (50%) after the apex.
-*   **Max Slip / Instability:** Maximum rear `m_wheelSlipRatio` on corner exit.
+## Architecture
 
-**Example Delta Calculation for Python logic:**
-`Delta_Brake_Point = Current_Lap_Brake_Point - Reference_Lap_Brake_Point`
-*(Negative means braked earlier, positive means braked later).*
+The live system is split into a small set of cooperating components:
 
-## 5. AI Integration & Prompting Strategy
-**API Call:** Triggered when `m_currentLapNum` increments.
-**Model:** Gemini 2.5 Flash (via `google-genai` SDK).
-**Input format:** A tight, structured JSON or bulleted text string summarizing the 2 worst corners of the lap.
+1. UDP receiver
+   - binds to `0.0.0.0:20777`,
+   - decodes packet headers and the relevant packet bodies,
+   - pushes lightweight `Frame` objects to a queue.
 
-**System Prompt Design (For the AI Engine):**
-> "You are an expert F1 race engineer. You will receive telemetry deltas comparing the driver's last lap to their personal best. 
-> Respond with exactly two short, punchy sentences of advice meant to be read over the team radio. 
-> Do not use pleasantries. Be direct. Example: 'You braked 10 meters too early into Turn 4, which compromised your apex speed. Carry more speed in and wait for the car to rotate before applying full throttle.'"
+2. Telemetry aggregator
+   - consumes frames in order,
+   - merges lap data, telemetry, and motion snapshots,
+   - keeps samples keyed by `m_lapDistance`,
+   - finalises a lap when `m_currentLapNum` increments,
+   - tracks invalid laps and restart/rewind edge cases.
 
-## 6. Development Phases (Instructions for Claude/LLM)
+3. Corner extraction and delta engine
+   - detects braking-defined corners,
+   - computes the key metrics for each turn,
+   - standardises the corner catalog against the track reference,
+   - compares current laps to the reference lap and ranks the worst corners.
 
-When executing this project, build it in the following phases. **Do not write the whole app at once.**
+4. Coaching and output
+   - ranks the major deltas mathematically,
+   - builds short radio-style coaching lines,
+   - renders lap charts for debugging and visual inspection,
+   - speaks the result using `edge-tts`, `pyttsx3`, or `say`.
 
-*   **Phase 1 - The UDP Sniffer:** Write a standalone Python script to bind to `0.0.0.0:20777`, parse the `PacketHeader`, and print out the `m_speed` and `m_brake` of the player's car from Packet ID 6.
-*   **Phase 2 - Lap Distance Indexing:** Update the script to store telemetry in a Pandas DataFrame or custom class, indexed by `m_lapDistance`. Implement logic to detect when a lap finishes.
-*   **Phase 3 - Corner Extraction:** Write an algorithm that detects braking zones (Brake > 0 -> Brake = 0) and records the entry distance, min speed, and exit distance.
-*   **Phase 4 - API Integration:** Write a function using `google-genai` that takes a mock dictionary of corner deltas, applies the F1 engineer prompt, and returns the string response.
-*   **Phase 5 - TTS & Multithreading:** Wrap the AI response in a text-to-speech function (e.g., `edge-tts`). Ensure the UDP listener runs on a background thread so packet ingestion doesn't block during network requests or TTS audio playback.
+## Data intake
+
+The app consumes F1 25 UDP packets from the game and expects the 2025 packet
+layout. It decodes the following packet IDs:
+
+- Packet 2: Lap Data
+  - `m_lapDistance`
+  - `m_currentLapNum`
+  - `m_currentLapInvalid`
+  - `m_sector`
+
+- Packet 6: Car Telemetry
+  - `m_speed`
+  - `m_throttle`
+  - `m_brake`
+  - `m_steer`
+  - `m_gear`
+
+- Packet 13: Motion Ex
+  - rear slip ratio / rear wheelspin
+  - front slip angle / understeer signal
+
+The receiver rejects mismatched `F1COACH_EXPECTED_FORMAT` values instead of
+trying to parse garbage data.
+
+## Lap model and validity tracking
+
+A core implementation rule is: never index telemetry by wall-clock time. The app
+stores per-lap samples in distance space so that lap N and lap N+1 line up
+spatially on track.
+
+The aggregator keeps a sticky invalid-lap signal while a lap is in progress and
+only finalises a completed lap when the lap number increments. It also handles:
+
+- restart-to-garage and fresh-session resets,
+- flashback / rewind conditions,
+- stale UDP frames arriving out of order.
+
+This protects the coach from false lap completions and from using wrong
+validity state when the game resets or rewinds the session.
+
+## Corner feature extraction
+
+Each corner is reduced to a small set of features rather than sending raw
+telemetry to an external model.
+
+Current tracked features include:
+
+- braking point distance,
+- speed at the apex / minimum cornering speed,
+- throttle-pickup point after the apex,
+- rear wheelspin on corner exit,
+- track-turn index / corner catalog matching.
+
+This is the basis of the delta comparison against the personal-best track lap.
+
+## Coaching logic
+
+The current implementation deliberately avoids LLMs. Advice is generated from a
+fixed, deterministic rule system in [src/f1coach/ai_coach.py](../src/f1coach/ai_coach.py).
+
+The flow is:
+
+- compare current corner metrics against the reference lap,
+- rank the worst deltas,
+- choose a small number of significant turn changes,
+- build a short set of radio-style sentences with a standard voice.
+
+This keeps the feedback fast, repeatable, and independent of network access.
+
+## Reference-lap persistence
+
+Reference laps are saved to `reference_laps/ref_<track>.json` and include:
+
+- track name,
+- lap time,
+- extracted corner catalog,
+- optional sample trace for charts and replay.
+
+The app updates the stored benchmark when a valid lap is faster than the current
+reference. Reset commands remove the saved reference for a track before the next
+run.
+
+## Runtime configuration
+
+The project is configured mostly through environment variables in
+[src/f1coach/config.py](../src/f1coach/config.py). The relevant settings include:
+
+- UDP bind address and port,
+- expected packet format,
+- heartbeat options,
+- TTS engine and voice,
+- invalid-lap coaching flag,
+- reference-lap directory,
+- supported circuit list and aliases.
+
+## Documentation map
+
+- [README.md](../README.md) — quick start and day-to-day usage
+- [docs/network_setup.md](network_setup.md) — cross-machine setup and verification
+- [docs/futurePlans](futurePlans) — exploratory roadmap ideas and future design directions
+
+The future-plan documents are deliberately separate from the current runtime
+implementation; they are design explorations rather than the actual in-repo app
+behavior.
