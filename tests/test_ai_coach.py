@@ -88,11 +88,14 @@ def test_coach_uses_ranked_corners_without_llm():
     assert "turn 1" in lowered
     assert "turn 4" in lowered
     assert "turn 7" in lowered
-    assert "improvement" in lowered or "faster" in lowered or "earlier" in lowered
-    assert "throttle" in lowered or "apex" in lowered or "brake" in lowered
-    assert "brake later next time" in lowered
-    assert "brake earlier next time" in lowered
-    assert "accelerate earlier next time" in lowered
+    assert "cost you the most this lap" in lowered
+    assert "improved the most" in lowered
+    assert "late acceleration" in lowered or "late throttle" in lowered
+    assert "early braking" in lowered or "brake too early" in lowered
+    assert "clear improvement" not in lowered
+    assert "accelerated " in lowered and "earlier" in lowered or "improved the most" in lowered
+    assert "brake later next time" not in lowered
+    assert "accelerate earlier next time" not in lowered
     assert "returned to throttle" not in lowered
     assert "metres too late" not in lowered
     assert "apex" not in lowered

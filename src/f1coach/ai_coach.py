@@ -54,26 +54,26 @@ def format_deltas_to_prompt(worst: List[CornerDelta]) -> str:
 def _issue_bits(d: CornerDelta) -> list[str]:
     bits: list[str] = []
     if d.brake_point_delta < -3:
-        bits.append(f"braked {abs(d.brake_point_delta):.0f} m too early; brake later next time")
+        bits.append("early braking")
     elif d.brake_point_delta > 3:
-        bits.append(f"braked {d.brake_point_delta:.0f} m too late; brake earlier next time")
+        bits.append("late braking")
     if d.throttle_pickup_delta > 3:
-        bits.append("accelerated too late; accelerate earlier next time")
+        bits.append("late acceleration")
     elif d.throttle_pickup_delta < -3:
-        bits.append("accelerated too early; accelerate later once the car is rotated")
+        bits.append("early acceleration")
     if d.exit_slip_delta > 0.1:
-        bits.append("scrubbed speed with rear wheelspin")
+        bits.append("rear wheelspin on exit")
     if not bits:
-        bits.append("lost a small amount of time through the corner")
+        bits.append("small time loss")
     return bits
 
 
 def _corner_sentence(d: CornerDelta, intro: str) -> str:
     bits = _issue_bits(d)
     if len(bits) == 1:
-        return f"{intro} {bits[0]}."
+        return f"{intro}: {bits[0]}."
     body = ", ".join(bits[:-1]) + f", and {bits[-1]}"
-    return f"{intro} {body}."
+    return f"{intro}: {body}."
 
 
 def _follow_up(d: CornerDelta) -> str:
@@ -96,22 +96,22 @@ def _merge_with_follow_up(sentence: str, action: str) -> str:
 def _improvement_bits(d: CornerDelta) -> list[str]:
     bits: list[str] = []
     if d.throttle_pickup_delta < -2:
-        bits.append(f"accelerated {abs(d.throttle_pickup_delta):.0f} m earlier")
+        bits.append("earlier throttle pickup")
     if d.exit_slip_delta < -0.1:
-        bits.append("kept the rear tyre planted on exit")
+        bits.append("cleaner exit")
     if d.brake_point_delta > 3:
-        bits.append(f"braked {d.brake_point_delta:.0f} m later")
+        bits.append("later braking")
     if not bits:
-        bits.append("were cleaner through the corner than your reference")
+        bits.append("cleaner cornering")
     return bits
 
 
 def _positive_corner_sentence(d: CornerDelta) -> str:
     bits = _improvement_bits(d)
     if len(bits) == 1:
-        return f"Track turn {d.corner_index} was a clear improvement: {bits[0]}."
+        return f"Turn {d.corner_index} improved the most: {bits[0]}."
     body = ", ".join(bits[:-1]) + f", and {bits[-1]}"
-    return f"Track turn {d.corner_index} was a clear improvement: {body}."
+    return f"Turn {d.corner_index} improved the most: {body}."
 
 
 def _selected_changes(worst: List[CornerDelta], best: Optional[List[CornerDelta]] = None, max_changes: int = 3) -> List[CornerDelta]:
@@ -156,9 +156,9 @@ def _offline_advice(worst: List[CornerDelta], best: Optional[List[CornerDelta]] 
         if best is not None and d in best:
             sentences.append(_positive_corner_sentence(d))
         elif main_issue is not None and d is main_issue:
-            sentences.append(_corner_sentence(d, f"Track turn {d.corner_index} cost you the most this lap"))
+            sentences.append(_corner_sentence(d, f"Turn {d.corner_index} cost you the most this lap"))
         else:
-            sentences.append(_corner_sentence(d, f"Track turn {d.corner_index} was the next change"))
+            sentences.append(_corner_sentence(d, f"Turn {d.corner_index} was the next change"))
 
     summary = " ".join(sentences)
     if main_issue is not None:
