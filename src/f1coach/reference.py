@@ -14,6 +14,7 @@ from typing import List, Optional
 
 from . import config
 from .corners import Corner
+from .telemetry import LapSample
 
 
 def _path(track: str) -> str:
@@ -21,13 +22,20 @@ def _path(track: str) -> str:
     return os.path.join(config.REFERENCE_LAP_DIR, f"ref_{safe}.json")
 
 
-def save_reference(track: str, corners: List[Corner], lap_time_ms: int) -> None:
+def save_reference(
+    track: str,
+    corners: List[Corner],
+    lap_time_ms: int,
+    samples: Optional[List[LapSample]] = None,
+) -> None:
     os.makedirs(config.REFERENCE_LAP_DIR, exist_ok=True)
     payload = {
         "track": track,
         "lap_time_ms": lap_time_ms,
         "corners": [asdict(c) for c in corners],
     }
+    if samples:
+        payload["samples"] = [asdict(sample) for sample in samples]
     # Atomic write: dump to a temp file in the same dir, then os.replace() over
     # the target so an interrupted write can never leave a corrupt reference.
     path = _path(track)
@@ -48,6 +56,26 @@ def load_reference(track: str) -> Optional[tuple[List[Corner], int]]:
             payload = json.load(f)
         corners = [Corner(**c) for c in payload["corners"]]
         return corners, int(payload["lap_time_ms"])
+    except Exception:
+        return None
+
+
+def load_reference_samples(track: str) -> Optional[List[LapSample]]:
+    """Load the recorded speed trace, if this reference includes one.
+
+    Older reference files contain only corner features, so they continue to
+    work and return ``None`` here until a new reference lap is saved.
+    """
+    path = _path(track)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            payload = json.load(f)
+        raw_samples = payload.get("samples")
+        if not raw_samples:
+            return None
+        return [LapSample(**sample) for sample in raw_samples]
     except Exception:
         return None
 

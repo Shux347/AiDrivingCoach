@@ -30,8 +30,9 @@ from f1coach import config, reference
 from f1coach.ai_coach import AICoach
 from f1coach.corners import Corner, best_corners, compute_deltas, extract_corners, standardise_corners, worst_corners
 from f1coach.receiver import Frame, HeartbeatMonitor, UDPReceiver
-from f1coach.telemetry import Lap, TelemetryAggregator
+from f1coach.telemetry import Lap, LapSample, TelemetryAggregator
 from f1coach.tts import Speaker
+from f1coach.visualization import LapChartRenderer
 
 
 class Coach:
@@ -58,6 +59,8 @@ class Coach:
         self.aggregator = TelemetryAggregator(on_lap_complete=self._on_lap_complete)
         self.ai = AICoach()
         self.speaker = Speaker()
+        chart_dir = config.LAP_CHART_DIR or os.path.join(config.REFERENCE_LAP_DIR, "charts")
+        self.chart_renderer = LapChartRenderer(self.track, chart_dir)
         self.heartbeat = HeartbeatMonitor(self.receiver) if config.HEARTBEAT_ENABLED else None
         self._stop = threading.Event()
         self._threads: List[threading.Thread] = []
@@ -65,6 +68,7 @@ class Coach:
         loaded = reference.load_reference(self.track)
         self.ref_corners: Optional[List[Corner]] = loaded[0] if loaded else None
         self.ref_lap_time_ms: int = loaded[1] if loaded else 0
+        self.ref_samples: Optional[List[LapSample]] = reference.load_reference_samples(self.track)
         if loaded:
             turn_count = len(self.ref_corners) if self.ref_corners is not None else 0
             print(f"Loaded reference lap for '{self.track}': "
@@ -100,11 +104,18 @@ class Coach:
                 print(f"[coaching] error handling lap {lap.lap_number}: {exc}")
 
     def _handle_completed_lap(self, lap: Lap) -> None:
+        chart_path = self.chart_renderer.render(
+            lap,
+            reference_samples=self.ref_samples,
+            reference_corners=self.ref_corners,
+            reference_lap_time_ms=self.ref_lap_time_ms,
+        )
         corners = extract_corners(lap)
         corners = standardise_corners(corners, self.ref_corners, track_name=self.track)
         lap_time = f"{lap.lap_time_ms/1000:.3f}s" if lap.lap_time_ms else "n/a"
         tag = " (INVALID)" if lap.invalid else ""
         print(f"\n=== Lap {lap.lap_number} complete{tag}: {lap_time} | comparing against track turns ===")
+        print(f"Live chart updated: {chart_path}")
 
         if lap.invalid and not self.coach_invalid:
             print("Lap invalidated — skipping coaching. Set F1COACH_COACH_INVALID=1 to override.")
@@ -113,7 +124,14 @@ class Coach:
 
         if self.ref_corners is None:
             print("No reference yet — banking this lap as the benchmark.")
-            self._maybe_update_reference(lap, corners, allow_invalid=False, force=True)
+            updated = self._maybe_update_reference(lap, corners, allow_invalid=False, force=True)
+            if updated:
+                self.chart_renderer.render(
+                    lap,
+                    reference_samples=self.ref_samples,
+                    reference_corners=self.ref_corners,
+                    reference_lap_time_ms=self.ref_lap_time_ms,
+                )
             return
 
         deltas = compute_deltas(corners, self.ref_corners)
@@ -121,22 +139,37 @@ class Coach:
         best = best_corners(deltas)
         advice = self.ai.coach(worst, best)
         self.speaker.say(advice)
-        self._maybe_update_reference(lap, corners, allow_invalid=False)
+        updated = self._maybe_update_reference(lap, corners, allow_invalid=False)
+        if updated:
+            self.chart_renderer.render(
+                lap,
+                reference_samples=self.ref_samples,
+                reference_corners=self.ref_corners,
+                reference_lap_time_ms=self.ref_lap_time_ms,
+            )
 
     def _maybe_update_reference(self, lap: Lap, corners: List[Corner],
-                                allow_invalid: bool, force: bool = False) -> None:
+                                allow_invalid: bool, force: bool = False) -> bool:
         if lap.invalid and not allow_invalid:
-            return
+            return False
         if not corners:
-            return
+            return False
         beats_pb = self.ref_corners is None or (
             lap.lap_time_ms > 0 and lap.lap_time_ms < self.ref_lap_time_ms
         )
         if force or beats_pb:
             self.ref_corners = standardise_corners(corners, self.ref_corners, track_name=self.track)
             self.ref_lap_time_ms = lap.lap_time_ms or self.ref_lap_time_ms
-            reference.save_reference(self.track, self.ref_corners, self.ref_lap_time_ms)
+            reference.save_reference(
+                self.track,
+                self.ref_corners,
+                self.ref_lap_time_ms,
+                samples=lap.samples,
+            )
+            self.ref_samples = list(lap.samples)
             print(f"⭐ New reference lap saved ({self.ref_lap_time_ms/1000:.3f}s).")
+            return True
+        return False
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
