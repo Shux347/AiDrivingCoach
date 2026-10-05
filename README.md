@@ -1,175 +1,169 @@
-# F1 25 AI Driver Coach
+# F1 Driving Coach
 
-A local Python app that reads live UDP telemetry from **EA Sports F1 25**,
-reduces each lap into corner-by-corner performance features, compares them
-against your personal-best reference lap, and delivers punchy race-engineer
-feedback over text-to-speech — automatically, at the end of every lap.
+A local Python telemetry coach for EA Sports F1 25. It listens to live UDP packets,
+tracks lap validity, stores a personal-best reference lap, extracts the key
+corner metrics for each lap, and gives deterministic race-engineer feedback over
+text-to-speech.
 
-> *"You braked 16 meters too early into Turn 1, losing 12 km/h at the apex. Get
-> the car rotated sooner and feed the throttle earlier on exit."*
+This project is intentionally offline and self-contained: it does not require a
+Google Gemini key or any external AI service.
 
-## How it works
+> 📻 RADIO: Turn 10 improved the most: earlier throttle pickup. Turn 1 cost you the most this lap: late acceleration. Turn 7 was the next change: small time loss. Brake consistently, then accelerate as soon as the car is rotated.
 
-Four modular layers, wired across three threads so telemetry ingestion is never
-blocked by network calls or audio playback:
+## What the current app does
 
-```
- F1 25  ──UDP 20777──▶  [Receiver thread]  ──▶ frame queue
-                                                  │
-                              [Aggregator thread]  ┤  index samples by lap
-                                                  │   distance; detect lap end
-                                                  ▼
-                                [Coaching thread]  ── extract corners → diff vs
-                                                      personal best → deterministic
-                                                      rule engine → speak the team radio
-```
+The implementation in [src/f1coach](src/f1coach) is a deterministic pipeline:
 
-1. **UDP Receiver** ([receiver.py](src/f1coach/receiver.py)) — binds `0.0.0.0:20777`,
-   decodes the 29-byte packet header, parses the three packets we need, and
-   queues lightweight frames.
-2. **Telemetry Aggregator** ([telemetry.py](src/f1coach/telemetry.py)) — merges
-   the packet streams and stores every sample **indexed by `m_lapDistance`** so
-   laps align *spatially*, not temporally. A lap is "done" when
-   `m_currentLapNum` increments.
-3. **Corner / Delta Engine** ([corners.py](src/f1coach/corners.py)) — detects
-   braking-defined corners and reduces each to four features (braking point,
-   apex speed, throttle pick-up point, max exit slip), then diffs against the
-   reference lap.
-4. **Coaching + Audio** ([ai_coach.py](src/f1coach/ai_coach.py), [tts.py](src/f1coach/tts.py)) —
-   scores the two worst corners with fixed mathematical thresholds and speaks the
-   result via **edge-tts** (with an offline `pyttsx3` / macOS `say` fallback).
+1. UDP receiver — listens on port 20777, decodes the F1 25 packet header and the
+   packet IDs used by the app.
+2. Telemetry aggregation — merges Lap Data, Car Telemetry, and Motion Ex into
+   lap samples indexed by `m_lapDistance`, not by wall-clock time.
+3. Corner extraction — identifies braking-defined corners, measures the key
+   features on each turn, and compares them against the stored reference lap.
+4. Coaching and audio — ranks the worst corners, applies fixed thresholds, and
+   plays the radio-style advice through `edge-tts` with offline fallbacks.
 
-### The packets it decodes
+The app also renders lap charts and persists reference laps per track in
+`reference_laps/`.
 
-| Packet id | Struct           | Fields used                                          |
-|-----------|------------------|------------------------------------------------------|
-| 2         | Lap Data         | `m_lapDistance`, `m_currentLapNum`, `m_sector`, `m_currentLapInvalid` |
-| 6         | Car Telemetry    | `m_speed`, `m_throttle`, `m_brake`, `m_steer`, `m_gear` |
-| 13        | Motion Ex        | `m_wheelSlipRatio` (rear wheelspin), `m_wheelSlipAngle` (front understeer) |
+## Packet coverage
 
-Byte layouts (little-endian, byte-packed) are verified against the F1 25 UDP
-spec — header = 29 B, LapData entry = 57 B, CarTelemetry entry = 60 B, Motion
-Ex body = 244 B. Wheel arrays are ordered `[RL, RR, FL, FR]`.
+The current implementation decodes these F1 25 packet types:
 
-## Setup
+| Packet ID | Struct | Fields used |
+| --- | --- | --- |
+| 2 | Lap Data | `m_lapDistance`, `m_currentLapNum`, `m_currentLapInvalid`, `m_sector` |
+| 6 | Car Telemetry | `m_speed`, `m_throttle`, `m_brake`, `m_steer`, `m_gear` |
+| 13 | Motion Ex | `m_wheelSlipRatio`, `m_wheelSlipAngle` |
+
+The parser expects the 2025 UDP format and drops mismatched packets instead of
+coaching on corrupted data.
+
+## Quick start
 
 ```bash
 cd F1DrivingCoach
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
 cp .env.example .env
 ```
 
-The coach runs entirely offline with a deterministic rule engine, so you can
-build and demo the full pipeline without any external AI service or key.
-
-### Enable telemetry in F1 25
-
-Settings → Telemetry Settings:
-* **UDP Telemetry:** On
-* **UDP Broadcast Mode:** Off (or point IP at this machine)
-* **UDP Port:** `20777`
-* **UDP Format:** `2025`
-
-> **Running the game and coach on different machines** (e.g. game on a PC,
-> coach on a Mac)? See [docs/network_setup.md](docs/network_setup.md) for the
-> exact IP/firewall setup and how to verify the connection.
-
-## Running
+## Running the coach
 
 ```bash
-# The full coach (needs the game running, or the mock sender below)
 PYTHONPATH=src python -m f1coach.app --track silverstone
 ```
 
-`--track NAME` keys the reference-lap file (`reference_laps/ref_NAME.json`); your
-first clean lap on that track becomes the benchmark, and any faster valid lap
-replaces it.
+`--track` resolves the circuit name and keys the reference lap file in
+`reference_laps/`. Your first clean lap becomes the benchmark; any faster valid
+lap replaces it.
 
-### Resetting reference laps
-
-To clear an existing reference lap for a circuit so your next clean lap becomes the new benchmark:
-
-```bash
-PYTHONPATH=src python -m f1coach.app --track silverstone --reset-reference
-```
-
-### CLI options
+### Useful flags
 
 | Flag | Meaning |
-|------|---------|
-| `--track TRACK` | F1 25 circuit name (required, e.g. `silverstone`, `mexico`, `texas`) |
-| `--reset-reference` | Reset / delete the stored reference lap for this track before running |
-| `--coach-invalid` | Coach on invalidated laps as well as clean laps |
+| --- | --- |
+| `--track TRACK` | Required circuit name, for example `silverstone`, `mexico`, or `brazil` |
+| `--reset-reference` | Deletes the saved reference lap for that track before the next run |
+| `--coach-invalid` | Coaches invalidated laps as well as clean laps |
 
-### Try it with no game (mock replay)
-
-Two terminals:
+### Mock/no-game replay
 
 ```bash
-# terminal 1 — the coach
+# terminal 1
 F1COACH_TTS=0 PYTHONPATH=src python -m f1coach.app --track silverstone
 
-# terminal 2 — synthetic telemetry: one clean lap, then a sloppy one
+# terminal 2
 python scripts/mock_sender.py
 ```
 
-You'll see lap 1 banked as the reference and lap 2 coached.
+This replays synthetic telemetry so you can test the app without running F1 25.
 
-### Phase 1 sniffer (connectivity diagnostic)
+### Connectivity sniffer
 
-Run this first to confirm the game is reaching this machine — it prints a live
-heartbeat with the sender IP, packet rate, per-packet-id counts and speed:
+Run the sniffer before the full coach to confirm UDP delivery is working:
 
 ```bash
-PYTHONPATH=src python scripts/sniff.py   # live: [hb] status line every few seconds
-python scripts/sniff.py --mock           # offline: replays synthetic packets
+PYTHONPATH=src python scripts/sniff.py
+python scripts/sniff.py --mock
 ```
 
-The main coach prints the same `[hb]` heartbeat, so you always know packets are
-flowing even before a lap completes. Set `F1COACH_HEARTBEAT=0` to silence it.
+The output includes a heartbeat with sender IP, packet rate, packet counts, and
+live speed. This is useful when the game is running on a different machine.
 
 ## Configuration
 
-All via env vars (see [config.py](src/f1coach/config.py) / `.env.example`):
+The project uses environment variables defined in [src/f1coach/config.py](src/f1coach/config.py)
+and the sample file `.env.example`.
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `F1COACH_PORT` | `20777` | UDP port |
-| `F1COACH_EXPECTED_FORMAT` | `2025` | UDP packet format to accept; mismatches are flagged and dropped |
-| `F1COACH_HEARTBEAT` | `1` | `0` silences the `[hb]` connection status line |
-| `F1COACH_TTS` | `1` | `0` disables audio (prints only) |
-| `F1COACH_TTS_ENGINE` | `edge` | `edge` or `pyttsx3` |
-| `F1COACH_VOICE` | `en-GB-RyanNeural` | edge-tts voice |
-| `F1COACH_COACH_INVALID` | `0` | `1` to coach on invalidated laps too |
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `F1COACH_PORT` | `20777` | UDP listen port |
+| `F1COACH_EXPECTED_FORMAT` | `2025` | Required telemetry format |
+| `F1COACH_HEARTBEAT` | `1` | Enable or silence the live heartbeat |
+| `F1COACH_TTS` | `1` | Disable spoken audio and print only |
+| `F1COACH_TTS_ENGINE` | `edge` | Preferred TTS engine |
+| `F1COACH_VOICE` | `en-GB-RyanNeural` | Edge voice selection |
+| `F1COACH_COACH_INVALID` | `0` | Allow coaching on invalidated laps |
 
-## Tests
+## Current architecture
 
-Pure-Python, no game or network needed (synthetic packets are byte-for-byte
-valid):
-
-```bash
-python tests/test_packets.py    # struct round-trips
-python tests/test_corners.py    # aggregator, corner extraction, deltas
-python tests/test_e2e.py        # full in-process pipeline
+```text
+F1 25 UDP telemetry
+        │
+        ▼
+[Receiver thread] ──▶ [Frame queue]
+        │
+        ▼
+[TelemetryAggregator] ──▶ [Lap queue]
+        │
+        ▼
+[Corner extraction + delta comparison]
+        │
+        ▼
+[Deterministic coaching engine]
+        │
+        ├─▶ chart rendering
+        └─▶ TTS output (edge-tts / pyttsx3 / macOS say)
 ```
 
 ## Project layout
 
-```
+```text
 src/f1coach/
-  packets.py     # binary decode of F1 25 UDP packets (verified layouts)
-  mock.py        # synthetic packet builders + track simulator
-  receiver.py    # Thread 1: UDP listener
-  telemetry.py   # Thread 2: distance-indexed aggregation, lap detection
-  corners.py     # corner extraction + delta engine
-  ai_coach.py    # deterministic rule-based coaching engine
-  tts.py         # edge-tts / pyttsx3 / macOS `say`
-  reference.py   # personal-best lap persistence
-  app.py         # wires the three threads together
+  ai_coach.py     # deterministic rule engine for coach messages
+  app.py         # runtime wiring for receiver + aggregator + coach
+  config.py      # environment-based runtime configuration
+  corners.py     # corner extraction and delta calculations
+  mock.py        # synthetic packet builders / track simulator
+  packets.py     # packet decoding and binary layout helpers
+  receiver.py    # UDP listener and heartbeat monitor
+  reference.py   # reference-lap persistence and reset logic
+  telemetry.py   # lap assembly and distance-based aggregation
+  tts.py         # spoken output with fallback engines
+  visualization.py
 scripts/
-  sniff.py       # Phase 1 standalone sniffer
-  mock_sender.py # UDP replay for demos
-tests/           # round-trip + pipeline tests
+  mock_sender.py
+  sniff.py
+docs/
+  network_setup.md
+  project_specification.md
+reference_laps/
+  ref_*.json
+  charts/
+tests/
 ```
+
+## Documentation
+
+- [docs/network_setup.md](docs/network_setup.md) — cross-machine game setup and firewall guidance.
+- [docs/project_specification.md](docs/project_specification.md) — current architecture and implementation notes.
+- [docs/futurePlans](docs/futurePlans) — long-range ideas and design exploration, not the current runtime path.
+
+## Tests
+
+```bash
+PYTHONPATH=src pytest -q
+```
+
+The suite exercises the packet decoders, lap aggregation, corner extraction, and
+radio-coaching logic without requiring a live game session.
