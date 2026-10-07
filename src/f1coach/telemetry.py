@@ -179,6 +179,23 @@ class TelemetryAggregator:
             self._trace_event("SESSION RESTART -> fresh lap", frame, lap)
             return
 
+        if lap.current_lap_num > self._last_lap_num:
+            # Lap boundary crossed. This is not an in-lap rewind: the game resets
+            # total_distance toward zero at the S/F line, and the first new-lap
+            # frame can carry a stale invalid=1 for the previous lap. Finalise the
+            # completed lap using ONLY the sticky state accumulated over its own
+            # frames, and ignore the transition frame's invalid bit.
+            self._trace_event(f"FINALISE lap {self._last_lap_num} "
+                              f"(invalid={self._lap_invalid})", frame, lap)
+            self._finalise_lap(completed_lap_time_ms=lap.last_lap_time_ms)
+            # Start the new lap CLEAN. m_currentLapInvalid is sticky within a lap
+            # and resets at the S/F line, but the game can lag that reset by a
+            # frame — so the transition frame may still carry the *previous*
+            # lap's 1. Ignoring it here avoids inheriting stale invalidity; a
+            # genuine invalidation of this lap will re-appear on its own frames.
+            self._begin_lap(frame, lap, seed_invalid=0)
+            return
+
         if lap.total_distance < self._last_total_distance - self._REWIND_DROP_M:
             # total_distance only ever grows in normal forward driving (it does
             # NOT reset at the S/F line), so a drop means a rewind: a flashback,
@@ -193,22 +210,6 @@ class TelemetryAggregator:
             self._session_uid = frame.session_uid
             self._last_total_distance = lap.total_distance
             self._trace_event("REWIND -> resync (clean, re-accumulate)", frame, lap)
-
-        if lap.current_lap_num > self._last_lap_num:
-            # Lap boundary crossed. Finalise the completed lap using ONLY the
-            # invalid state accumulated from ITS OWN frames — do not fold in this
-            # frame's invalid bit, which belongs to the new lap (m_currentLapNum
-            # has already incremented here).
-            self._trace_event(f"FINALISE lap {self._last_lap_num} "
-                              f"(invalid={self._lap_invalid})", frame, lap)
-            self._finalise_lap(completed_lap_time_ms=lap.last_lap_time_ms)
-            # Start the new lap CLEAN. m_currentLapInvalid is sticky within a lap
-            # and resets at the S/F line, but the game can lag that reset by a
-            # frame — so the transition frame may still carry the *previous*
-            # lap's 1. Ignoring it here avoids inheriting stale invalidity; a
-            # genuine invalidation of this lap will re-appear on its own frames.
-            self._begin_lap(frame, lap, seed_invalid=0)
-            return
 
         # Same lap still in progress — accumulate stickily and refresh trackers.
         if lap.current_lap_invalid and not self._lap_invalid:

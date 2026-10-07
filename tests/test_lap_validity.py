@@ -86,6 +86,27 @@ def test_genuinely_invalid_lap_is_still_flagged():
     assert completed[0].invalid is True
 
 
+def test_lap_boundary_reset_does_not_trigger_rewind_invalidation():
+    """A valid lap ending at the S/F line can send a tiny total_distance reset
+    while the first frame of the next lap carries a stale invalid=1. This must
+    finalise the old lap as VALID, not treat the new lap's flag as a rewind of
+    the finished lap."""
+    completed = []
+    agg = TelemetryAggregator(on_lap_complete=completed.append)
+    for i in range(4):
+        _lap_frame(agg, 1, 100.0 * i, invalid=0,
+                   total_distance=2000.0 + i * 100.0, session_uid=11)
+        _telemetry_frame(agg)
+    # New lap begins; totalDistance resets toward zero, and the first frame of the
+    # new lap still reports invalid=1 due to stale lag from the game. It is NOT a
+    # rewind of lap 1 — it is the boundary transition to lap 2.
+    _lap_frame(agg, 2, 5.0, invalid=1, total_distance=50.0, session_uid=11)
+    _telemetry_frame(agg)
+    assert len(completed) == 1
+    assert completed[0].lap_number == 1
+    assert completed[0].invalid is False
+
+
 def test_restart_via_new_session_uid_clears_invalidation():
     """Invalidate a lap, then hit 'Restart Session' (new session UID, lap
     counter back to 1). The next clean lap must NOT inherit the invalidation,
